@@ -1,57 +1,19 @@
 package pingpong
 
 import (
-	"github.com/ksimnet/netconn"
 	"github.com/ksimnet/simnet"
 	"github.com/stretchr/testify/require"
 	"log"
 	"math/rand"
-	"net"
 	"strconv"
-	"sync"
 	"testing"
 )
-
-
-var clientCnt = 200
-var testMsgCnt = 10000
-
-var done chan<- struct{}
-var sapp *PongServerApp
-var WaitGrp *sync.WaitGroup
-
-func init() {
-
-	srvAddr, err := net.ResolveTCPAddr("tcp", sAddr)
-	if err != nil {
-		panic(err)
-	}
-
-	sapp = &PongServerApp{
-		clients: make([]*netconn.NetPoint, 0),
-		recvBuf: make(map[string][]string),
-		sendBuf: make(map[string][]string),
-	}
-
-	s, err := simnet.NewServer(sapp, srvAddr.String())
-	if err != nil {
-		panic(err)
-	}
-
-	done, err = s.Listen()
-
-	if err != nil {
-		panic(err)
-	}
-
-	WaitGrp = &sync.WaitGroup{}
-}
 
 func TestConnect(t *testing.T) {
 	routine := func(capp *PingClientApp) {
 		WaitGrp.Add(1)
-		for i := 0; i< testMsgCnt; i++ {
-			txt := "client [" + capp.conn.LocalAddr().String() + "] sends a msg:" +strconv.Itoa(i)
+		for i := 0; i < testMsgCnt; i++ {
+			txt := "client [" + capp.conn.LocalAddr().String() + "] sends a msg:" + strconv.Itoa(i)
 			_, err := capp.conn.Write([]byte(txt))
 			require.NoError(t, err)
 
@@ -72,11 +34,9 @@ func TestConnect(t *testing.T) {
 			sendBuf: make([]string, testMsgCnt),
 		}
 
-		hostIp := "192.0.0."+strconv.Itoa(rand.Intn(255)+1)
-		conn, err := simnet.Connect(capps[i], hostIp, sAddr)
+		hostIp := "192.0.0." + strconv.Itoa(rand.Intn(255)+1)
+		_, err := simnet.Connect(capps[i], hostIp, sAddr)
 		require.NoError(t, err)
-
-		capps[i].conn = conn
 	}
 
 	log.Printf("Run clients...")

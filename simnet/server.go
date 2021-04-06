@@ -7,8 +7,8 @@ import (
 )
 
 type Server struct {
-	worker  netconn.ServerWorker
-	clients map[string]*netconn.NetPoint
+	worker netconn.ServerWorker
+	//clients map[string]*netconn.NetPoint
 
 	listenAddr *net.TCPAddr
 	listenCh   chan *netconn.Session
@@ -20,8 +20,8 @@ func NewServer(app netconn.ServerWorker, laddr string) (*Server, error) {
 		return nil, err
 	}
 	return &Server{
-		worker:     app,
-		clients:    make(map[string]*netconn.NetPoint),
+		worker: app,
+		//clients:    make(map[string]*netconn.NetPoint),
 		listenAddr: tcpAddr,
 		listenCh:   make(chan *netconn.Session, 256), // backlog = 256
 	}, nil
@@ -71,7 +71,7 @@ func (s *Server) accept(sess *netconn.Session) error {
 	c2.SetSession(sess)
 	c2.SetRemotePoint(c1)
 
-	s.clients[c2.RemoteAddr().String()] = c2
+	//s.clients[c2.RemoteAddr().String()] = c2
 
 	return s.worker.OnAccept(c2)
 }

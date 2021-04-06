@@ -71,6 +71,8 @@ func Connect(worker netconn.ClientWorker, hostIP, toAddr string) (netconn.NetCon
 		return nil, err
 	}
 
+	worker.OnConnect(c)
+
 	return c, nil
 }
 
