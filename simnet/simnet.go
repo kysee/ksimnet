@@ -3,7 +3,7 @@ package simnet
 import (
 	"errors"
 	"fmt"
-	"github.com/ksimnet/netapp"
+	"github.com/ksimnet/netconn"
 	"net"
 	"strconv"
 	"sync"
@@ -12,7 +12,7 @@ import (
 var gmtx sync.Mutex
 
 var servers map[string]*Server
-var sessions map[string]*Session
+var sessions map[string]*netconn.Session
 
 var (
 	a byte = 1
@@ -24,7 +24,7 @@ var ports map[string]int = make(map[string]int)
 
 func init() {
 	servers = make(map[string]*Server)
-	sessions = make(map[string]*Session)
+	sessions = make(map[string]*netconn.Session)
 }
 
 func hkey(addr string, port int) string {
@@ -50,32 +50,46 @@ func NewPort(host string) int {
 	return 1
 }
 
-func Connect(app netapp.ClientApp, hostIP, toAddr string) (*ClientConn, error) {
-	c, err := NewClientConn(app, hostIP)
+func bindPort(host string) (*net.TCPAddr, error) {
+	tcpAddr, err := net.ResolveTCPAddr("tcp", host+":"+strconv.Itoa(NewPort(host)))
+	if err != nil {
+		return nil, err
+	}
+	return tcpAddr, nil
+}
+
+func Connect(worker netconn.ClientWorker, hostIP, toAddr string) (netconn.NetConn, error) {
+	bindAddr, err := bindPort(hostIP)
 	if err != nil {
 		return nil, err
 	}
 
-	sess, err := buildSession(c, toAddr)
+	c := netconn.NewNetPoint(worker, bindAddr)
+
+	_, err = buildSession(c, toAddr)
 	if err != nil {
 		return nil, err
 	}
-	c.SetRemoteConn(sess.GetNetConn(1))
 
 	return c, nil
 }
 
-func buildSession(client *ClientConn, to string) (*Session, error) {
+func buildSession(client *netconn.NetPoint, to string) (*netconn.Session, error) {
 	s := findServer(to)
 	if s == nil {
 		return nil, errors.New("not reachanble address: " + to)
 	}
 
-	sess := NewSession(client.NetConn, nil)
+	sess := netconn.NewSession(client, nil)
 	client.SetSession(sess)
 
 	s.listenCh <- sess
-	<-sess.evtCh
+	<-sess.EvtCh
+
+	client.SetRemotePoint(sess.GetNetPoint(1))
+
+	// add a session
+	sessions[sess.Key()] = sess
 
 	return sess, nil
 }

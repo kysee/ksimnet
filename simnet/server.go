@@ -2,29 +2,28 @@ package simnet
 
 import (
 	"errors"
-	"github.com/ksimnet/netapp"
-	"log"
+	"github.com/ksimnet/netconn"
 	"net"
 )
 
 type Server struct {
-	app netapp.ServerApp
+	worker  netconn.ServerWorker
+	clients map[string]*netconn.NetPoint
 
 	listenAddr *net.TCPAddr
-	clients    map[string]*ServerConn
-	listenCh   chan *Session
+	listenCh   chan *netconn.Session
 }
 
-func NewServer(app netapp.ServerApp, laddr string) (*Server, error) {
+func NewServer(app netconn.ServerWorker, laddr string) (*Server, error) {
 	tcpAddr, err := net.ResolveTCPAddr("tcp", laddr)
 	if err != nil {
 		return nil, err
 	}
 	return &Server{
-		app:        app,
+		worker:     app,
+		clients:    make(map[string]*netconn.NetPoint),
 		listenAddr: tcpAddr,
-		clients:    make(map[string]*ServerConn),
-		listenCh:   make(chan *Session, 256), // backlog = 256
+		listenCh:   make(chan *netconn.Session, 256), // backlog = 256
 	}, nil
 }
 
@@ -32,45 +31,47 @@ func (s *Server) Key() string {
 	return s.listenAddr.String()
 }
 
-func (s *Server) Listen() (<-chan struct{}, error) {
+func (s *Server) Listen() (chan<- struct{}, error) {
+	done := make(chan struct{})
+
 	go func() {
-
+	Loop:
 		for {
-			if sess, ok := <-s.listenCh; ok {
-				log.Printf("Received %v\n", sess)
-				s.accept(sess)
+			select {
+			case sess, ok := <-s.listenCh:
+				if ok {
+					s.accept(sess)
 
-				sess.GetNetConn(0).SetRemoteConn(sess.GetNetConn(1))
-				sess.evtCh <- struct{}{}
-				log.Printf("Constructed %v\n", sess)
-			} else {
-				panic("error in receiving from listenCh")
-				break
+					sess.EvtCh <- struct{}{}
+
+					//log.Printf("Constructed session: %v\n", sess)
+				} else {
+					panic("error in receiving from listenCh")
+					break Loop
+				}
+			case <-done:
+				break Loop
 			}
 		}
 	}()
 
 	AddServer(s)
 
-	return make(<-chan struct{}), nil
+	return done, nil
 }
 
-func (s *Server) accept(sess *Session) error {
-	c1 := sess.GetNetConn(0)
+func (s *Server) accept(sess *netconn.Session) error {
+	c1 := sess.GetNetPoint(0)
 	if c1 == nil {
 		return errors.New("a session has no NetConn")
 	}
 
-	serverConn, err := NewServerConn(s.app, s.listenAddr)
-	if err != nil {
-		return err
-	}
+	c2 := netconn.NewNetPoint(s.worker, s.listenAddr)
+	sess.SetNetPoint(1, c2)
+	c2.SetSession(sess)
+	c2.SetRemotePoint(c1)
 
-	serverConn.SetRemoteConn(c1)
-	serverConn.SetSession(sess)
-	sess.SetNetConn(1, serverConn.NetConn)
+	s.clients[c2.RemoteAddr().String()] = c2
 
-	s.clients[serverConn.Key()] = serverConn
-
-	return s.app.OnAccept(serverConn.NetConn)
+	return s.worker.OnAccept(c2)
 }
