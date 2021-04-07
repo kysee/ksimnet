@@ -13,7 +13,7 @@ import (
 )
 
 var PeerCnt = 200
-var MsgCnt = 100
+var MsgCnt = 10000
 
 func TestP2P(t *testing.T) {
 
@@ -40,7 +40,9 @@ func TestP2P(t *testing.T) {
 	for i := 0; i < MsgCnt; i++ {
 		j := rand.Intn(PeerCnt)
 		peers[j].Broadcast(uint64(i), []byte("Message Number is "+strconv.Itoa(i)))
-		time.Sleep(time.Millisecond * 100)
+
+		rn := time.Duration(rand.Intn(500) + 1)
+		time.Sleep(time.Millisecond * rn)
 	}
 
 	p2p.WG.Wait()
