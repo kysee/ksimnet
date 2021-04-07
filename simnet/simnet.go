@@ -3,16 +3,17 @@ package simnet
 import (
 	"errors"
 	"fmt"
-	"github.com/ksimnet/netconn"
+	"github.com/ksimnet/types"
 	"net"
 	"strconv"
 	"sync"
 )
 
-var gmtx sync.Mutex
+var listenerMtx sync.Mutex
+var sessionMtx sync.Mutex
 
-var servers map[string]*Server
-var sessions map[string]*netconn.Session
+var listeners map[string]*Listener
+var sessions map[string]*Session
 
 var (
 	a byte = 1
@@ -23,17 +24,12 @@ var (
 var ports map[string]int = make(map[string]int)
 
 func init() {
-	servers = make(map[string]*Server)
-	sessions = make(map[string]*netconn.Session)
+	listeners = make(map[string]*Listener)
+	sessions = make(map[string]*Session)
 }
 
 func hkey(addr string, port int) string {
 	return addr + ":" + strconv.Itoa(port)
-}
-
-func Init(netAddr string) {
-	gmtx.Lock()
-	defer gmtx.Unlock()
 }
 
 func NewIP() string {
@@ -58,94 +54,102 @@ func bindPort(host string) (*net.TCPAddr, error) {
 	return tcpAddr, nil
 }
 
-func Connect(worker netconn.ClientWorker, hostIP, toAddr string) (netconn.NetConn, error) {
+func Connect(worker types.ClientWorker, hostIP, toAddr string) (types.NetConn, error) {
 	bindAddr, err := bindPort(hostIP)
 	if err != nil {
 		return nil, err
 	}
 
-	c := netconn.NewNetPoint(worker, bindAddr)
+	c := NewNetPoint(worker, bindAddr)
 
-	_, err = buildSession(c, toAddr)
+	_, err = BuildSession(c, toAddr)
 	if err != nil {
 		return nil, err
 	}
 
 	worker.OnConnect(c)
-
 	return c, nil
 }
 
-func buildSession(client *netconn.NetPoint, to string) (*netconn.Session, error) {
-	s := findServer(to)
-	if s == nil {
-		return nil, errors.New("not reachanble address: " + to)
-	}
-
-	sess := netconn.NewSession(client, nil)
-	client.SetSession(sess)
-
-	s.listenCh <- sess
-	<-sess.EvtCh
-
-	client.SetRemotePoint(sess.GetNetPoint(1))
-
-	// add a session
-	sessions[sess.Key()] = sess
-
-	return sess, nil
-}
-
-func AddServer(s *Server) error {
+func AddListener(s *Listener) error {
 	k := s.Key()
 
-	gmtx.Lock()
-	defer gmtx.Unlock()
+	listenerMtx.Lock()
+	defer listenerMtx.Unlock()
 
-	if h := findServer(k); h != nil {
+	if h := findListener(k); h != nil {
 		return fmt.Errorf("Already exist")
 	}
 
-	servers[k] = s
+	listeners[k] = s
 
 	return nil
 }
 
-func RemoveServer(s *Server) error {
-	k := s.Key()
+func RemoveListener(lsn *Listener) {
+	k := lsn.Key()
 
-	gmtx.Lock()
-	defer gmtx.Unlock()
+	listenerMtx.Lock()
+	defer listenerMtx.Unlock()
 
-	if h := findServer(k); h != nil {
-		return fmt.Errorf("Already exist")
-	}
-
-	servers[k] = nil
-
-	return nil
+	delete(listeners, k)
 }
 
-func findServer(k string) *Server {
-	if h, ok := servers[k]; ok {
+func findListener(k string) *Listener {
+	if h, ok := listeners[k]; ok {
 		return h
 	}
 	return nil
 }
 
-func FindServer(addr string, port int) *Server {
-	gmtx.Lock()
-	defer gmtx.Unlock()
+func FindListener(addr string, port int) *Listener {
+	listenerMtx.Lock()
+	defer listenerMtx.Unlock()
 
-	return findServer(hkey(addr, port))
+	return findListener(hkey(addr, port))
 
 }
 
-func PrintServers() {
-	gmtx.Lock()
-	defer gmtx.Unlock()
+func PrintListener() {
+	listenerMtx.Lock()
+	defer listenerMtx.Unlock()
 
-	for k, s := range servers {
+	for k, s := range listeners {
 		fmt.Println(k, s.listenAddr.String())
 	}
+}
+
+func BuildSession(client *NetPoint, to string) (*Session, error) {
+	s := findListener(to)
+	if s == nil {
+		return nil, errors.New("not reachanble address: " + to)
+	}
+
+	sess := NewSession(client, nil)
+	client.SetSession(sess)
+
+	s.listenCh <- sess
+	err := <-sess.RemoteRetCh
+
+	if err != nil {
+		return nil, err
+	}
+
+	client.SetRemotePoint(sess.GetNetConn(SERVER).(*NetPoint))
+
+	// add a session
+	sessionMtx.Lock()
+	defer sessionMtx.Unlock()
+
+	sessions[sess.Key()] = sess
+
+	return sess, nil
+}
+
+func RemoveSession(sess *Session) {
+	sessionMtx.Lock()
+	defer sessionMtx.Unlock()
+
+	delete(sessions, sess.Key())
+	sess.listener.RemoveNetConn(sess.GetNetConn(SERVER))
 }

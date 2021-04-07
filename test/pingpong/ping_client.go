@@ -1,16 +1,14 @@
 package pingpong
 
 import (
-	"github.com/ksimnet/netconn"
-	"sync"
+	"github.com/ksimnet/types"
 )
 
 var clientCnt = 200
 var testMsgCnt = 10000
-var WaitGrp *sync.WaitGroup
 
 type PingClientApp struct {
-	conn netconn.NetConn
+	conn types.NetConn
 
 	recvSeq int
 	recvBuf []string
@@ -18,14 +16,15 @@ type PingClientApp struct {
 	sendBuf []string
 }
 
-var _ netconn.ClientWorker = (*PingClientApp)(nil)
+var _ types.ClientWorker = (*PingClientApp)(nil)
 
-func (c *PingClientApp) OnConnect(conn *netconn.NetPoint) error {
+func (c *PingClientApp) OnConnect(conn types.NetConn) {
 	c.conn = conn
-	return nil
 }
 
-func (c *PingClientApp) OnRecv(conn *netconn.NetPoint, d []byte, l int) (int, error) {
+func (c *PingClientApp) OnRecv(conn types.NetConn, d []byte, l int) (int, error) {
+	//log.Printf("Client %s received '%s' from %s\n", conn.LocalAddr(), string(d), conn.RemoteAddr())
+
 	c.recvBuf[c.recvSeq] = string(d)
 	c.recvSeq++
 
@@ -35,6 +34,7 @@ func (c *PingClientApp) OnRecv(conn *netconn.NetPoint, d []byte, l int) (int, er
 	return l, nil
 }
 
-func (c *PingClientApp) OnClose(conn *netconn.NetPoint) error {
-	panic("implement me")
+func (c *PingClientApp) OnClose(conn types.NetConn) {
+	//log.Printf("Client [%s] is closed\n", conn.Key())
+	WaitGrp.Done()
 }

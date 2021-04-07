@@ -47,8 +47,6 @@ func TestConnect(t *testing.T) {
 	log.Printf("Wait ...")
 	WaitGrp.Wait()
 
-	done <- struct{}{}
-
 	log.Printf("Validate ...")
 
 	for _, capp := range capps {
@@ -81,4 +79,12 @@ func TestConnect(t *testing.T) {
 			//}
 		}
 	}
+
+	WaitGrp.Add(clientCnt * 2)
+
+	sapp.Shutdown()
+
+	WaitGrp.Wait()
+
+	require.Zero(t, len(sapp.clients))
 }

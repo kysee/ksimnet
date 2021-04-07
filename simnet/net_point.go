@@ -1,16 +1,17 @@
-package netconn
+package simnet
 
 import (
 	"errors"
 	"fmt"
+	"github.com/ksimnet/types"
 	"net"
 	"sync"
 )
 
 type NetPoint struct {
-	mtx sync.Mutex
+	mtx sync.RWMutex
 
-	worker  NetWorker
+	worker  types.NetWorker
 	session *Session
 
 	localAddr   *net.TCPAddr
@@ -30,7 +31,7 @@ type NetPoint struct {
 	done chan struct{}
 }
 
-func NewNetPoint(worker NetWorker, localAddr *net.TCPAddr) *NetPoint {
+func NewNetPoint(worker types.NetWorker, localAddr *net.TCPAddr) *NetPoint {
 	ret := &NetPoint{
 		worker:     worker,
 		localAddr:  localAddr,
@@ -65,23 +66,38 @@ Loop:
 	fmt.Println("[", nc.LocalAddr().String(), "] Goodbye...")
 }
 
-func (nc *NetPoint) Worker() NetWorker {
+func (nc *NetPoint) Worker() types.NetWorker {
+	nc.mtx.RLock()
+	defer nc.mtx.RUnlock()
+
 	return nc.worker
 }
 
 func (nc *NetPoint) SetSession(sess *Session) {
+	nc.mtx.Lock()
+	defer nc.mtx.Unlock()
+
 	nc.session = sess
 }
 
 func (nc *NetPoint) GetSession() *Session {
+	nc.mtx.RLock()
+	defer nc.mtx.RUnlock()
+
 	return nc.session
 }
 
 func (nc *NetPoint) SetRemotePoint(r *NetPoint) {
+	nc.mtx.Lock()
+	defer nc.mtx.Unlock()
+
 	nc.remotePoint = r
 }
 
 func (nc *NetPoint) RemotePoint() *NetPoint {
+	nc.mtx.RLock()
+	defer nc.mtx.RUnlock()
+
 	return nc.remotePoint
 }
 
@@ -183,10 +199,13 @@ func (nc *NetPoint) pickRX() []byte {
 // implement the NetConn interface
 //
 
-var _ NetConn = (*NetPoint)(nil)
+var _ types.NetConn = (*NetPoint)(nil)
 
 func (nc *NetPoint) Key() string {
-	panic("implement me")
+	nc.mtx.RLock()
+	defer nc.mtx.RUnlock()
+
+	return nc.localAddr.String() + "-" + nc.RemoteAddr().String()
 }
 
 func (nc *NetPoint) Write(d []byte) (int, error) {
@@ -212,17 +231,29 @@ func (nc *NetPoint) Read(d []byte) (int, error) {
 	if d == nil || len(d) == 0 {
 		return 0, errors.New("invalid buffer")
 	}
+
 	return nc.getRX(d), nil
 }
 
 func (nc *NetPoint) Close() {
-	panic("implement me")
+	RemoveSession(nc.session)
+
+	nc.worker.OnClose(nc)
+	go func(npo *NetPoint) {
+		npo.worker.OnClose(npo)
+	}(nc.remotePoint)
 }
 
 func (nc *NetPoint) LocalAddr() *net.TCPAddr {
+	nc.mtx.RLock()
+	defer nc.mtx.RUnlock()
+
 	return nc.localAddr
 }
 
 func (nc *NetPoint) RemoteAddr() *net.TCPAddr {
-	return nc.remotePoint.localAddr
+	nc.mtx.RLock()
+	defer nc.mtx.RUnlock()
+
+	return nc.remotePoint.LocalAddr()
 }

@@ -1,58 +1,57 @@
 package p2p
 
 import (
-	"github.com/ksimnet/netconn"
 	"github.com/ksimnet/simnet"
+	"github.com/ksimnet/types"
 )
 
 var PeerCnt = 100
-var AddrBook []string = make([]string, PeerCnt)
+var AddrBook []string
 
 type Peer struct {
-	server     *simnet.Server
-	others     []*netconn.NetPoint
+	server     *simnet.Listener
+	others     []types.NetConn
 	stopListen chan<- struct{}
 }
 
 func NewPeer() *Peer {
 	peer := &Peer{
-		others: make([]*netconn.NetPoint, 50),
+		others: make([]types.NetConn, 50),
 	}
 	return peer
 }
 
 func (peer *Peer) Start(laddr string) {
-	s, err := simnet.NewServer(peer, laddr)
+	s, err := simnet.NewListener(peer, laddr)
 	if err != nil {
 		panic(err)
 	}
 
-	stopListen, err := s.Listen()
+	err = s.Listen()
 	if err != nil {
 		panic(err)
 	}
 
 	peer.server = s
-	peer.stopListen = stopListen
 
 	// todo: add the peer.server.Key() to AddrBook[]
 }
 
-func (peer *Peer) OnConnect(point *netconn.NetPoint) error {
+var _ types.ServerWorker = (*Peer)(nil)
+var _ types.ClientWorker = (*Peer)(nil)
+
+func (peer *Peer) OnConnect(conn types.NetConn) {
 	panic("implement me")
 }
 
-func (peer *Peer) OnAccept(point *netconn.NetPoint) error {
+func (peer *Peer) OnAccept(conn types.NetConn) error {
 	panic("implement me")
 }
 
-func (peer *Peer) OnRecv(point *netconn.NetPoint, bytes []byte, i int) (int, error) {
+func (peer *Peer) OnRecv(conn types.NetConn, bytes []byte, i int) (int, error) {
 	panic("implement me")
 }
 
-func (peer *Peer) OnClose(point *netconn.NetPoint) error {
+func (peer *Peer) OnClose(conn types.NetConn) {
 	panic("implement me")
 }
-
-var _ netconn.ServerWorker = (*Peer)(nil)
-var _ netconn.ClientWorker = (*Peer)(nil)
