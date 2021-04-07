@@ -3,7 +3,6 @@ package simnet
 import (
 	"errors"
 	"github.com/ksimnet/types"
-	"log"
 	"net"
 	"sync"
 )
@@ -59,11 +58,11 @@ func (lsn *Listener) Listen() error {
 
 		RemoveListener(lsn)
 
-		log.Printf("Listener(%s) is shutdowned", lsn.Key())
+		//log.Printf("Listener(%s) is shutdowned", lsn.Key())
 	}()
 
 	AddListener(lsn)
-	log.Printf("Listener(%s) is started", lsn.Key())
+	//log.Printf("Listener(%s) is started", lsn.Key())
 	return nil
 }
 
@@ -73,6 +72,10 @@ func (lsn *Listener) Shutdown() {
 	}
 
 	lsn.stopListenCh <- struct{}{}
+}
+
+func (lsn *Listener) ListenAddr() *net.TCPAddr {
+	return lsn.listenAddr
 }
 
 func (lsn *Listener) accept(sess *Session) error {

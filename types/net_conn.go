@@ -12,4 +12,9 @@ type NetConn interface {
 
 	LocalAddr() *net.TCPAddr
 	RemoteAddr() *net.TCPAddr
+
+	LocalIP() net.IP
+	LocalPort() int
+	RemoteIP() net.IP
+	RemotePort() int
 }

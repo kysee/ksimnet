@@ -9,6 +9,7 @@ import (
 	"sync"
 )
 
+var addrMtx sync.Mutex
 var listenerMtx sync.Mutex
 var sessionMtx sync.Mutex
 
@@ -38,6 +39,9 @@ func NewIP() string {
 }
 
 func NewPort(host string) int {
+	addrMtx.Lock()
+	defer addrMtx.Unlock()
+
 	if p, ok := ports[host]; ok {
 		ports[host] = p + 1
 		return p + 1
