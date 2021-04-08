@@ -4,36 +4,29 @@ import (
 	"github.com/kysee/ksimnet/simnet"
 	"github.com/kysee/ksimnet/types"
 	"net"
+	"strconv"
 	"sync"
 )
 
 var WaitGrp *sync.WaitGroup = &sync.WaitGroup{}
-var sAddr string = "10.0.0.1:8888"
+var serverIp = "10.0.0.1"
+var serverPort = 8888
+var serverTcpAddr string = "10.0.0.1:" + strconv.Itoa(serverPort)
 var sapp *PongServerApp
 
 func init() {
 
-	srvAddr, err := net.ResolveTCPAddr("tcp", sAddr)
-	if err != nil {
-		panic(err)
-	}
-
 	sapp = &PongServerApp{
+		hostIp:  net.ParseIP(serverIp),
 		clients: make([]types.NetConn, 0),
 		recvBuf: make(map[string][]string),
 		sendBuf: make(map[string][]string),
 	}
 
-	lsn, err := simnet.NewListener(sapp, srvAddr.String())
-	if err != nil {
+	sapp.listener = simnet.NewListener(sapp)
+	if err := sapp.listener.Listen(serverPort); err != nil {
 		panic(err)
 	}
-
-	if err = lsn.Listen(); err != nil {
-		panic(err)
-	}
-
-	sapp.listener = lsn
 }
 
 type PongServerApp struct {
@@ -44,6 +37,7 @@ type PongServerApp struct {
 	sendBuf    map[string][]string
 
 	listener *simnet.Listener
+	hostIp   net.IP
 }
 
 func (s *PongServerApp) Shutdown() {
@@ -51,6 +45,10 @@ func (s *PongServerApp) Shutdown() {
 }
 
 var _ types.ServerWorker = (*PongServerApp)(nil)
+
+func (s *PongServerApp) HostIP() net.IP {
+	return s.hostIp
+}
 
 func (s *PongServerApp) OnAccept(conn types.NetConn) error {
 	s.clients = append(s.clients, conn)

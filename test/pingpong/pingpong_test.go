@@ -30,14 +30,16 @@ func TestPingPong(t *testing.T) {
 	log.Printf("Create clients...")
 	capps := make([]*PingClientApp, clientCnt)
 	for i, _ := range capps {
+		hostIp := "192.0.0." + strconv.Itoa(rand.Intn(255)+1)
+
 		capps[i] = &PingClientApp{
+			hostIp:  net.ParseIP(hostIp),
 			recvBuf: make([]string, testMsgCnt),
 			sendBuf: make([]string, testMsgCnt),
 		}
 
-		hostIp := "192.0.0." + strconv.Itoa(rand.Intn(255)+1)
-		np := simnet.NewNetPoint(capps[i], net.ParseIP(hostIp), 0)
-		err := np.Connect(sAddr)
+		np := simnet.NewNetPoint(capps[i], 0)
+		err := np.Connect(serverTcpAddr)
 		require.NoError(t, err)
 	}
 

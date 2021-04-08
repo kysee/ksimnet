@@ -17,25 +17,29 @@ type Listener struct {
 	stopListenCh chan struct{}
 }
 
-func NewListener(app types.ServerWorker, laddr string) (*Listener, error) {
-	tcpAddr, err := net.ResolveTCPAddr("tcp", laddr)
-	if err != nil {
-		return nil, err
-	}
+func NewListener(app types.ServerWorker) *Listener {
 	return &Listener{
 		worker:       app,
 		clients:      make(map[string]types.NetConn),
-		listenAddr:   tcpAddr,
+		listenAddr:   &net.TCPAddr{IP: app.HostIP()},
 		listenCh:     make(chan *Session, 256), // backlog = 256
 		stopListenCh: make(chan struct{}),
-	}, nil
+	}
 }
 
 func (lsn *Listener) Key() string {
 	return lsn.listenAddr.String()
 }
 
-func (lsn *Listener) Listen() error {
+func (lsn *Listener) Listen(port int) error {
+	lsn.mtx.Lock()
+	defer lsn.mtx.Unlock()
+
+	if lsn.listenAddr.Port != 0 {
+		return errors.New("this listener is already started")
+	}
+
+	lsn.listenAddr.Port = port
 
 	go func() {
 	Loop:
@@ -58,6 +62,9 @@ func (lsn *Listener) Listen() error {
 
 		RemoveListener(lsn)
 
+		lsn.mtx.Lock()
+		defer lsn.mtx.Unlock()
+		lsn.listenAddr.Port = 0
 		//log.Printf("Listener(%s) is shutdowned", lsn.Key())
 	}()
 
@@ -84,7 +91,7 @@ func (lsn *Listener) accept(sess *Session) error {
 		return errors.New("a session has no NetConn")
 	}
 
-	c2 := NewNetPoint(lsn.worker, lsn.listenAddr.IP, lsn.listenAddr.Port)
+	c2 := NewNetPoint(lsn.worker, lsn.listenAddr.Port)
 	sess.SetNetConn(SERVER, c2)
 	c2.SetSession(sess)
 	c2.SetRemotePoint(c1.(*NetPoint))

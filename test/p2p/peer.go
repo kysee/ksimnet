@@ -26,8 +26,9 @@ type BroadcastPack struct {
 type Peer struct {
 	mtx sync.RWMutex
 
-	server *simnet.Listener
-	others map[string]types.NetConn
+	hostIP   net.IP
+	listener *simnet.Listener
+	others   map[string]types.NetConn
 
 	recvMsgs map[uint64][]byte
 
@@ -35,30 +36,25 @@ type Peer struct {
 	stopCh      chan interface{}
 }
 
-func NewPeer(laddr string) *Peer {
+func NewPeer(hostIp net.IP) *Peer {
 	peer := &Peer{
+		hostIP:      hostIp,
 		others:      make(map[string]types.NetConn),
 		recvMsgs:    make(map[uint64][]byte),
 		broadcastCh: make(chan *BroadcastPack, MaxOthers*2),
 		stopCh:      make(chan interface{}),
 	}
-
-	s, err := simnet.NewListener(peer, laddr)
-	if err != nil {
-		panic(err)
-	}
-	peer.server = s
 	return peer
 }
 
-func (peer *Peer) Start() {
-	err := peer.server.Listen()
-	if err != nil {
+func (peer *Peer) Start(port int) {
+	peer.listener = simnet.NewListener(peer)
+	if err := peer.listener.Listen(port); err != nil {
 		panic(err)
 	}
 
 	addrBookMtx.Lock()
-	AddrBook = append(AddrBook, peer.server.ListenAddr().String())
+	AddrBook = append(AddrBook, peer.listener.ListenAddr().String())
 	addrBookMtx.Unlock()
 
 	go peer.connectRoutine()
@@ -98,18 +94,11 @@ func (peer *Peer) PeerCnt() int {
 	return len(peer.others)
 }
 
-func (peer *Peer) LocalListenAddr() *net.TCPAddr {
+func (peer *Peer) HostIP() net.IP {
 	peer.mtx.RLock()
 	defer peer.mtx.RUnlock()
 
-	return peer.server.ListenAddr()
-}
-
-func (peer *Peer) LocalIP() net.IP {
-	peer.mtx.RLock()
-	defer peer.mtx.RUnlock()
-
-	return peer.server.ListenAddr().IP
+	return peer.hostIP
 }
 
 func (peer *Peer) RecvMsgCnt() int {
@@ -193,15 +182,15 @@ Loop:
 					if err != nil {
 						panic(err)
 					}
+
 					ip := tcpAddr.IP.String()
-					if !peer.HasPeer(ip) && ip != peer.LocalListenAddr().IP.String() {
-						np := simnet.NewNetPoint(peer, peer.LocalIP(), 0)
+					if !peer.HasPeer(ip) && ip != peer.HostIP().String() {
+						np := simnet.NewNetPoint(peer, 0 /*bind unused port*/)
 						if err := np.Connect(addr); err == nil {
-							//if _, err := simnet.Connect(peer, peer.LocalListenAddr().IP.String(), addr); err == nil {
 							break
 						} else {
 							log.Printf("the peer(%s) can not connect to the peer(%s): %s\n",
-								peer.LocalIP(), addr, err)
+								peer.HostIP(), addr, err)
 						}
 					}
 				}

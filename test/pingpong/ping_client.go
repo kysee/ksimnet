@@ -2,13 +2,15 @@ package pingpong
 
 import (
 	"github.com/kysee/ksimnet/types"
+	"net"
 )
 
 var clientCnt = 200
 var testMsgCnt = 10000
 
 type PingClientApp struct {
-	conn types.NetConn
+	hostIp net.IP
+	conn   types.NetConn
 
 	recvSeq int
 	recvBuf []string
@@ -17,6 +19,10 @@ type PingClientApp struct {
 }
 
 var _ types.ClientWorker = (*PingClientApp)(nil)
+
+func (c *PingClientApp) HostIP() net.IP {
+	return c.hostIp
+}
 
 func (c *PingClientApp) OnConnect(conn types.NetConn) {
 	c.conn = conn

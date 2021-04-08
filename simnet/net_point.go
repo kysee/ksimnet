@@ -32,17 +32,15 @@ type NetPoint struct {
 	done chan struct{}
 }
 
-func NewNetPoint(worker types.NetWorker, hostIp net.IP, hostPort int) *NetPoint {
-	if hostIp == nil {
-		hostIp = NewIP()
-	}
+func NewNetPoint(worker types.NetWorker, hostPort int) *NetPoint {
+	hostIp := worker.HostIP()
 	if hostPort == 0 {
 		hostPort = NewPort(hostIp)
 	}
 
 	ret := &NetPoint{
 		worker:     worker,
-		localAddr:  &net.TCPAddr{IP: hostIp, Port: hostPort},
+		localAddr:  &net.TCPAddr{IP: worker.HostIP(), Port: hostPort},
 		rxBuf:      make(map[int][]byte),
 		rxSeqFront: 0,
 		rxSeqEnd:   0,
@@ -333,12 +331,10 @@ func BindPort(hostIp net.IP) *net.TCPAddr {
 }
 
 func (np *NetPoint) Connect(toAddr string) error {
-	c := NewNetPoint(np.worker, np.LocalIP(), 0)
-
-	if _, err := BuildSession(c, toAddr); err != nil {
+	if _, err := BuildSession(np, toAddr); err != nil {
 		return err
 	}
 
-	np.worker.(types.ClientWorker).OnConnect(c)
+	np.worker.(types.ClientWorker).OnConnect(np)
 	return nil
 }

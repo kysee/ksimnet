@@ -20,7 +20,7 @@ func TestP2P(t *testing.T) {
 	log.Println("Create Peers...")
 	peers := make([]*p2p.Peer, PeerCnt)
 	for i := 0; i < PeerCnt; i++ {
-		peers[i] = p2p.NewPeer(net.IPv4(byte(1), byte(1), byte(1), byte(i+1)).String() + ":55555")
+		peers[i] = p2p.NewPeer(net.IPv4(byte(1), byte(1), byte(1), byte(i+1)))
 	}
 
 	log.Println("Start Peers and Connecting ...")
@@ -28,7 +28,7 @@ func TestP2P(t *testing.T) {
 	p2p.WG.Add(PeerCnt)
 
 	for _, p := range peers {
-		p.Start()
+		p.Start(55555)
 	}
 
 	p2p.WG.Wait()
@@ -48,7 +48,7 @@ func TestP2P(t *testing.T) {
 	p2p.WG.Wait()
 
 	for _, p := range peers {
-		ip := p.LocalIP()
+		ip := p.HostIP()
 		c := p.RecvMsgCnt()
 		log.Printf("Validating for %d messages of the peer(%s)\n", c, ip)
 
