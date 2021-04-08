@@ -1,7 +1,6 @@
 package p2p
 
 import (
-	"fmt"
 	"github.com/stretchr/testify/require"
 	"log"
 	"math/rand"
@@ -21,19 +20,24 @@ func TestSimMsgCodec(t *testing.T) {
 	log.Println(m1)
 	log.Println(m2)
 
+	m2.MsgType = 0
+	require.NotEqual(t, m1, m2)
+
 	m3 := NewAckPeers(20)
 
-	cnt := rand.Intn(5) + 10
+	cnt := rand.Intn(500) + 10
 	for i := 0; i < cnt; i++ {
-		a := 1  //rand.Intn(255) + 1
-		b := 1  //rand.Intn(255) + 1
-		c := 1  //rand.Intn(255) + 1
-		d := i  //rand.Intn(255) + 1
-		p := 22 //rand.Intn(65567) + 1
+		a := byte(rand.Intn(255) + 1)
+		b := byte(rand.Intn(256))
+		c := byte(rand.Intn(256))
+		d := byte(rand.Intn(255) + 1)
+		p := rand.Intn(0xFFFF) + 1
 
-		addr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%d.%d.%d.%d:%d", a, b, c, d, p))
-		require.NoError(t, err)
-		m3.AddPeer(addr)
+		m3.AddPeer(
+			&net.TCPAddr{
+				IP:   net.IPv4(a, b, c, d),
+				Port: p,
+			})
 	}
 
 	bz = m3.Encode()
