@@ -12,8 +12,8 @@ import (
 	"time"
 )
 
-var PeerCnt = 200
-var MsgCnt = 10000
+var PeerCnt = 100
+var MsgCnt = 1000
 
 func TestP2P(t *testing.T) {
 
@@ -39,20 +39,18 @@ func TestP2P(t *testing.T) {
 
 	for i := 0; i < MsgCnt; i++ {
 		j := rand.Intn(PeerCnt)
-		peers[j].Broadcast(uint64(i), []byte("Message Number is "+strconv.Itoa(i)))
+		peers[j].Broadcast(uint64(i), []byte("Message Number is "+strconv.Itoa(i)), nil)
 
-		rn := time.Duration(rand.Intn(500) + 1)
+		rn := time.Duration(rand.Intn(100) + 1)
 		time.Sleep(time.Millisecond * rn)
 	}
 
 	p2p.WG.Wait()
 
-	log.Println("Validate ...")
-
 	for _, p := range peers {
 		ip := p.LocalIP()
 		c := p.RecvMsgCnt()
-		log.Printf("  Validate for the peer(%s) that has %d messages\n", ip, c)
+		log.Printf("Validating for %d messages of the peer(%s)\n", c, ip)
 
 		require.Equal(t, MsgCnt, c, fmt.Sprintf("peer(%s) has %d messages.", ip, c))
 		for i := 0; i < c; i++ {

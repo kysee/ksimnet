@@ -89,6 +89,10 @@ func (lsn *Listener) accept(sess *Session) error {
 	c2.SetSession(sess)
 	c2.SetRemotePoint(c1.(*NetPoint))
 
+	// This code comes from 'BuildSession()' in simnet.go.
+	// See the comments in simnet.go for the reason.
+	c1.(*NetPoint).SetRemotePoint(c2)
+
 	err := lsn.worker.OnAccept(c2)
 	if err == nil {
 		lsn.AddNetConn(c2)

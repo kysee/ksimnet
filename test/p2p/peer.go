@@ -5,14 +5,23 @@ import (
 	"errors"
 	"github.com/ksimnet/simnet"
 	"github.com/ksimnet/types"
+	"log"
+	"math/rand"
 	"net"
 	"sync"
 	"time"
 )
 
-var MaxOthers = 5
+var MinOthers = 3
+var MaxOthers = 100
 var AddrBook []string
+var addrBookMtx sync.RWMutex
 var WG = sync.WaitGroup{}
+
+type BroadcastPack struct {
+	src  types.NetConn
+	pack []byte
+}
 
 type Peer struct {
 	mtx sync.RWMutex
@@ -22,14 +31,16 @@ type Peer struct {
 
 	recvMsgs map[uint64][]byte
 
-	stopCh chan interface{}
+	broadcastCh chan *BroadcastPack
+	stopCh      chan interface{}
 }
 
 func NewPeer(laddr string) *Peer {
 	peer := &Peer{
-		others:   make(map[string]types.NetConn),
-		recvMsgs: make(map[uint64][]byte),
-		stopCh:   make(chan interface{}),
+		others:      make(map[string]types.NetConn),
+		recvMsgs:    make(map[uint64][]byte),
+		broadcastCh: make(chan *BroadcastPack, MaxOthers*2),
+		stopCh:      make(chan interface{}),
 	}
 
 	s, err := simnet.NewListener(peer, laddr)
@@ -46,11 +57,12 @@ func (peer *Peer) Start() {
 		panic(err)
 	}
 
-	peer.mtx.Lock()
-	defer peer.mtx.Unlock()
+	addrBookMtx.Lock()
 	AddrBook = append(AddrBook, peer.server.ListenAddr().String())
+	addrBookMtx.Unlock()
 
 	go peer.connectRoutine()
+	go peer.broadcastRoutine()
 }
 
 func (peer *Peer) addPeerConn(conn types.NetConn) {
@@ -77,6 +89,13 @@ func (peer *Peer) HasPeer(ip string) bool {
 	defer peer.mtx.RUnlock()
 
 	return peer.hasPeer(ip)
+}
+
+func (peer *Peer) PeerCnt() int {
+	peer.mtx.RLock()
+	defer peer.mtx.RUnlock()
+
+	return len(peer.others)
 }
 
 func (peer *Peer) LocalAddr() *net.TCPAddr {
@@ -110,49 +129,66 @@ func (peer *Peer) RecvMsg(k uint64) []byte {
 	return nil
 }
 
-func (peer *Peer) Broadcast(n uint64, d []byte) {
+func (peer *Peer) Broadcast(n uint64, d []byte, srcConn types.NetConn) {
 
 	// encoding a packet
-	pack := make([]byte, 8+len(d))
-	copy(pack[8:], d)
-	binary.BigEndian.PutUint64(pack[:8], n)
+	_pack := make([]byte, 8+len(d))
+	copy(_pack[8:], d)
+	binary.BigEndian.PutUint64(_pack[:8], n)
 
-	go peer.broadcastRoutine(pack, nil)
-}
-
-func (peer *Peer) broadcastRoutine(d []byte, srcConn types.NetConn) {
-	srcKey := ""
-	if srcConn != nil {
-		srcKey = srcConn.Key()
+	brdPack := &BroadcastPack{
+		pack: _pack,
+		src:  srcConn,
 	}
 
-	peer.mtx.RLock()
-	defer peer.mtx.RUnlock()
+	peer.broadcastCh <- brdPack
 
-	for k, p := range peer.others {
-		if srcKey == "" || k != srcKey {
-			if _, err := p.Write(d); err != nil {
-				panic("Wrting to peer(" + k + ") is failed: " + err.Error())
+}
+
+func (peer *Peer) broadcastRoutine() {
+Loop:
+	for {
+		select {
+		case brdPack := <-peer.broadcastCh:
+			srcKey := ""
+			if brdPack.src != nil {
+				srcKey = brdPack.src.Key()
 			}
+
+			peer.mtx.RLock()
+			for k, p := range peer.others {
+				if srcKey == "" || k != srcKey {
+					if _, err := p.Write(brdPack.pack); err != nil {
+						panic("Wrting to peer(" + k + ") is failed: " + err.Error())
+					}
+				}
+			}
+			peer.mtx.RUnlock()
+
+		case <-peer.stopCh:
+			break Loop
 		}
 	}
 }
 
 func (peer *Peer) connectRoutine() {
 
-	ticker := time.NewTicker(time.Millisecond * 1000)
+	ticker := time.NewTicker(time.Millisecond * 500)
 
 Loop:
 	for {
 		select {
 		case <-ticker.C:
-			if len(peer.others) < MaxOthers {
-				peer.mtx.RLock()
+			if peer.PeerCnt() < MinOthers {
+				addrBookMtx.RLock()
 				addrs := make([]string, len(AddrBook))
 				copy(addrs, AddrBook)
-				peer.mtx.RUnlock()
+				addrBookMtx.RUnlock()
 
-				for _, addr := range addrs {
+				for {
+					rdx := rand.Intn(len(addrs))
+					addr := addrs[rdx]
+
 					tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
 					if err != nil {
 						panic(err)
@@ -161,6 +197,9 @@ Loop:
 					if !peer.HasPeer(ip) && ip != peer.LocalAddr().IP.String() {
 						if _, err := simnet.Connect(peer, peer.LocalAddr().IP.String(), addr); err == nil {
 							break
+						} else {
+							log.Printf("the peer(%s) can not connect to the peer(%s): %s\n",
+								peer.LocalIP(), addr, err)
 						}
 					}
 				}
@@ -218,7 +257,10 @@ func (peer *Peer) OnRecv(conn types.NetConn, d []byte, size int) (int, error) {
 	//log.Printf("Peer(%s) received msg[%d] from peer(%s)\n", conn.LocalAddr(), bn, conn.RemoteAddr())
 
 	// broadcast to others
-	go peer.broadcastRoutine(d, conn)
+	peer.broadcastCh <- &BroadcastPack{
+		pack: d,
+		src:  conn,
+	}
 
 	return size, nil
 }

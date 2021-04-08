@@ -29,10 +29,6 @@ func init() {
 	sessions = make(map[string]*Session)
 }
 
-func hkey(addr string, port int) string {
-	return addr + ":" + strconv.Itoa(port)
-}
-
 func NewIP() string {
 	d++
 	return net.IPv4(a, b, c, d).String()
@@ -106,12 +102,11 @@ func findListener(k string) *Listener {
 	return nil
 }
 
-func FindListener(addr string, port int) *Listener {
+func FindListener(addr string) *Listener {
 	listenerMtx.Lock()
 	defer listenerMtx.Unlock()
 
-	return findListener(hkey(addr, port))
-
+	return findListener(addr)
 }
 
 func PrintListener() {
@@ -124,7 +119,7 @@ func PrintListener() {
 }
 
 func BuildSession(client *NetPoint, to string) (*Session, error) {
-	s := findListener(to)
+	s := FindListener(to)
 	if s == nil {
 		return nil, errors.New("not reachanble address: " + to)
 	}
@@ -139,7 +134,14 @@ func BuildSession(client *NetPoint, to string) (*Session, error) {
 		return nil, err
 	}
 
-	client.SetRemotePoint(sess.GetNetConn(SERVER).(*NetPoint))
+	// NOTE: The following code is moved to Listener::accept() at listener.go
+	// Because OnAccept() is already called,
+	//  the server can send something before client.SetRemotePoint() is called in client side.
+	// In the case, the client's NetPoint object has no NetConn object for the server side.
+	// To resolve this problem,
+	//  the 'client.SetRemotePoint()' SHOULD BE CALLED before ServerWorker.OnAccept() is called in server side.
+	//
+	// client.SetRemotePoint(sess.GetNetConn(SERVER).(*NetPoint))
 
 	// add a session
 	sessionMtx.Lock()
