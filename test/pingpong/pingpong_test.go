@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestConnect(t *testing.T) {
+func TestPingPong(t *testing.T) {
 	routine := func(capp *PingClientApp) {
 		WaitGrp.Add(1)
 		for i := 0; i < testMsgCnt; i++ {
@@ -35,7 +35,8 @@ func TestConnect(t *testing.T) {
 		}
 
 		hostIp := "192.0.0." + strconv.Itoa(rand.Intn(255)+1)
-		_, err := simnet.Connect(capps[i], hostIp, sAddr)
+		np := simnet.NewNetPoint(capps[i], simnet.BindPort(hostIp))
+		err := np.Connect(sAddr)
 		require.NoError(t, err)
 	}
 
