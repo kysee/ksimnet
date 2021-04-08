@@ -98,7 +98,7 @@ func (peer *Peer) PeerCnt() int {
 	return len(peer.others)
 }
 
-func (peer *Peer) LocalAddr() *net.TCPAddr {
+func (peer *Peer) LocalListenAddr() *net.TCPAddr {
 	peer.mtx.RLock()
 	defer peer.mtx.RUnlock()
 
@@ -194,8 +194,10 @@ Loop:
 						panic(err)
 					}
 					ip := tcpAddr.IP.String()
-					if !peer.HasPeer(ip) && ip != peer.LocalAddr().IP.String() {
-						if _, err := simnet.Connect(peer, peer.LocalAddr().IP.String(), addr); err == nil {
+					if !peer.HasPeer(ip) && ip != peer.LocalListenAddr().IP.String() {
+						np := simnet.NewNetPoint(peer, simnet.BindPort(peer.LocalIP().String()))
+						if err := np.Connect(addr); err == nil {
+							//if _, err := simnet.Connect(peer, peer.LocalListenAddr().IP.String(), addr); err == nil {
 							break
 						} else {
 							log.Printf("the peer(%s) can not connect to the peer(%s): %s\n",

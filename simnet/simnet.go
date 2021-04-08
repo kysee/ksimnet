@@ -3,72 +3,18 @@ package simnet
 import (
 	"errors"
 	"fmt"
-	"github.com/ksimnet/types"
-	"net"
-	"strconv"
 	"sync"
 )
 
-var addrMtx sync.Mutex
 var listenerMtx sync.Mutex
 var sessionMtx sync.Mutex
 
 var listeners map[string]*Listener
 var sessions map[string]*Session
 
-var (
-	a byte = 1
-	b byte = 0
-	c byte = 0
-	d byte = 0
-)
-var ports map[string]int = make(map[string]int)
-
 func init() {
 	listeners = make(map[string]*Listener)
 	sessions = make(map[string]*Session)
-}
-
-func NewIP() string {
-	d++
-	return net.IPv4(a, b, c, d).String()
-}
-
-func NewPort(host string) int {
-	addrMtx.Lock()
-	defer addrMtx.Unlock()
-
-	if p, ok := ports[host]; ok {
-		ports[host] = p + 1
-		return p + 1
-	}
-	ports[host] = 1
-	return 1
-}
-
-func bindPort(host string) (*net.TCPAddr, error) {
-	tcpAddr, err := net.ResolveTCPAddr("tcp", host+":"+strconv.Itoa(NewPort(host)))
-	if err != nil {
-		return nil, err
-	}
-	return tcpAddr, nil
-}
-
-func Connect(worker types.ClientWorker, hostIP, toAddr string) (types.NetConn, error) {
-	bindAddr, err := bindPort(hostIP)
-	if err != nil {
-		return nil, err
-	}
-
-	c := NewNetPoint(worker, bindAddr)
-
-	_, err = BuildSession(c, toAddr)
-	if err != nil {
-		return nil, err
-	}
-
-	worker.OnConnect(c)
-	return c, nil
 }
 
 func AddListener(s *Listener) error {

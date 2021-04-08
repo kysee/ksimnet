@@ -289,3 +289,50 @@ func (np *NetPoint) RemotePort() int {
 
 	return np.remotePoint.LocalPort()
 }
+
+var addrMtx sync.Mutex
+var (
+	a byte = 1
+	b byte = 0
+	c byte = 0
+	d byte = 0
+)
+var ports map[string]int = make(map[string]int)
+
+func NewIP() string {
+	d++
+	return net.IPv4(a, b, c, d).String()
+}
+
+func NewPort(host string) int {
+	addrMtx.Lock()
+	defer addrMtx.Unlock()
+
+	if p, ok := ports[host]; ok {
+		ports[host] = p + 1
+		return p + 1
+	}
+	ports[host] = 1
+	return 1
+}
+
+func BindPort(host string) *net.TCPAddr {
+	tcpAddr := &net.TCPAddr{
+		IP:   net.ParseIP(host),
+		Port: NewPort(host),
+	}
+	return tcpAddr
+}
+
+func (np *NetPoint) Connect(toAddr string) error {
+	bindAddr := BindPort(np.LocalIP().String())
+
+	c := NewNetPoint(np.worker, bindAddr)
+
+	if _, err := BuildSession(c, toAddr); err != nil {
+		return err
+	}
+
+	np.worker.(types.ClientWorker).OnConnect(c)
+	return nil
+}
