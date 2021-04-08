@@ -195,7 +195,7 @@ Loop:
 					}
 					ip := tcpAddr.IP.String()
 					if !peer.HasPeer(ip) && ip != peer.LocalListenAddr().IP.String() {
-						np := simnet.NewNetPoint(peer, simnet.BindPort(peer.LocalIP().String()))
+						np := simnet.NewNetPoint(peer, peer.LocalIP(), 0)
 						if err := np.Connect(addr); err == nil {
 							//if _, err := simnet.Connect(peer, peer.LocalListenAddr().IP.String(), addr); err == nil {
 							break

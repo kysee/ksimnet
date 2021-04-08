@@ -32,10 +32,17 @@ type NetPoint struct {
 	done chan struct{}
 }
 
-func NewNetPoint(worker types.NetWorker, localAddr *net.TCPAddr) *NetPoint {
+func NewNetPoint(worker types.NetWorker, hostIp net.IP, hostPort int) *NetPoint {
+	if hostIp == nil {
+		hostIp = NewIP()
+	}
+	if hostPort == 0 {
+		hostPort = NewPort(hostIp)
+	}
+
 	ret := &NetPoint{
 		worker:     worker,
-		localAddr:  localAddr,
+		localAddr:  &net.TCPAddr{IP: hostIp, Port: hostPort},
 		rxBuf:      make(map[int][]byte),
 		rxSeqFront: 0,
 		rxSeqEnd:   0,
@@ -299,15 +306,16 @@ var (
 )
 var ports map[string]int = make(map[string]int)
 
-func NewIP() string {
+func NewIP() net.IP {
 	d++
-	return net.IPv4(a, b, c, d).String()
+	return net.IPv4(a, b, c, d)
 }
 
-func NewPort(host string) int {
+func NewPort(hostIp net.IP) int {
 	addrMtx.Lock()
 	defer addrMtx.Unlock()
 
+	host := hostIp.String()
 	if p, ok := ports[host]; ok {
 		ports[host] = p + 1
 		return p + 1
@@ -316,18 +324,16 @@ func NewPort(host string) int {
 	return 1
 }
 
-func BindPort(host string) *net.TCPAddr {
+func BindPort(hostIp net.IP) *net.TCPAddr {
 	tcpAddr := &net.TCPAddr{
-		IP:   net.ParseIP(host),
-		Port: NewPort(host),
+		IP:   hostIp,
+		Port: NewPort(hostIp),
 	}
 	return tcpAddr
 }
 
 func (np *NetPoint) Connect(toAddr string) error {
-	bindAddr := BindPort(np.LocalIP().String())
-
-	c := NewNetPoint(np.worker, bindAddr)
+	c := NewNetPoint(np.worker, np.LocalIP(), 0)
 
 	if _, err := BuildSession(c, toAddr); err != nil {
 		return err

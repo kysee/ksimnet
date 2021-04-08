@@ -5,6 +5,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"log"
 	"math/rand"
+	"net"
 	"strconv"
 	"testing"
 )
@@ -35,7 +36,7 @@ func TestPingPong(t *testing.T) {
 		}
 
 		hostIp := "192.0.0." + strconv.Itoa(rand.Intn(255)+1)
-		np := simnet.NewNetPoint(capps[i], simnet.BindPort(hostIp))
+		np := simnet.NewNetPoint(capps[i], net.ParseIP(hostIp), 0)
 		err := np.Connect(sAddr)
 		require.NoError(t, err)
 	}

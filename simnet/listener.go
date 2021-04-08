@@ -84,7 +84,7 @@ func (lsn *Listener) accept(sess *Session) error {
 		return errors.New("a session has no NetConn")
 	}
 
-	c2 := NewNetPoint(lsn.worker, lsn.listenAddr)
+	c2 := NewNetPoint(lsn.worker, lsn.listenAddr.IP, lsn.listenAddr.Port)
 	sess.SetNetConn(SERVER, c2)
 	c2.SetSession(sess)
 	c2.SetRemotePoint(c1.(*NetPoint))
