@@ -1,8 +1,8 @@
 package pingpong
 
 import (
-	"github.com/ksimnet/simnet"
-	"github.com/ksimnet/types"
+	"github.com/kysee/ksimnet/simnet"
+	"github.com/kysee/ksimnet/types"
 	"net"
 	"sync"
 )

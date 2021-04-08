@@ -2,7 +2,7 @@ package p2p_test
 
 import (
 	"fmt"
-	"github.com/ksimnet/test/p2p"
+	"github.com/kysee/ksimnet/test/p2p"
 	"github.com/stretchr/testify/require"
 	"log"
 	"math/rand"

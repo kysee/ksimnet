@@ -1,7 +1,7 @@
 package pingpong
 
 import (
-	"github.com/ksimnet/types"
+	"github.com/kysee/ksimnet/types"
 )
 
 var clientCnt = 200

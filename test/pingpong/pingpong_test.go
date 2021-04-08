@@ -1,7 +1,7 @@
 package pingpong
 
 import (
-	"github.com/ksimnet/simnet"
+	"github.com/kysee/ksimnet/simnet"
 	"github.com/stretchr/testify/require"
 	"log"
 	"math/rand"

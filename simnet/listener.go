@@ -2,7 +2,7 @@ package simnet
 
 import (
 	"errors"
-	"github.com/ksimnet/types"
+	"github.com/kysee/ksimnet/types"
 	"net"
 	"sync"
 )
