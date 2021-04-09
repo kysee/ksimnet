@@ -190,7 +190,7 @@ Loop:
 						if err := np.Connect(toAddr.String()); err == nil {
 							break
 						} else {
-							log.Printf("the peer(%s) can not connect to the peer(%s): %s\n",
+							log.Printf("The local peer(%s) can not connect to the peer(%s): %s\n",
 								me.HostIP(), toAddr, err)
 						}
 					}
