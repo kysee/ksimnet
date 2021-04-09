@@ -9,10 +9,11 @@ import (
 )
 
 func TestSimMsgCodec(t *testing.T) {
-	m1 := NewReqPeers(10)
-	bz := m1.Encode()
+	m1 := NewReqPeers(1)
+	bz, err := m1.Encode()
+	require.NoError(t, err)
 
-	m2 := NewReqPeers(0)
+	m2 := NewReqPeers(2)
 	m2.Decode(bz)
 
 	require.Equal(t, m1, m2)
@@ -23,7 +24,7 @@ func TestSimMsgCodec(t *testing.T) {
 	m2.MsgType = 0
 	require.NotEqual(t, m1, m2)
 
-	m3 := NewAckPeers(20)
+	m3 := NewAckPeers(3)
 
 	cnt := rand.Intn(500) + 10
 	for i := 0; i < cnt; i++ {
@@ -40,7 +41,9 @@ func TestSimMsgCodec(t *testing.T) {
 			})
 	}
 
-	bz = m3.Encode()
+	bz, err = m3.Encode()
+	require.NoError(t, err)
+
 	m4 := NewAckPeers(0)
 	m4.Decode(bz)
 
@@ -49,4 +52,17 @@ func TestSimMsgCodec(t *testing.T) {
 	log.Println(m3)
 	log.Println(m4)
 
+	amsg := []byte("Test Message")
+	m5 := NewBytesSimMsg(0, 10, amsg)
+	bz, err = m5.Encode()
+	require.NoError(t, err)
+
+	m6 := &BytesSimMsg{}
+	m6.Decode(bz)
+
+	require.Equal(t, m5, m6)
+	require.Equal(t, amsg, m6.Body)
+
+	log.Println(m5)
+	log.Println(m6)
 }
