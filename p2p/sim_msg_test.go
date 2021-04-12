@@ -10,7 +10,9 @@ import (
 
 func TestSimMsgCodec(t *testing.T) {
 
-	m1 := NewAnonySimMsg(NewReqPeers(&net.TCPAddr{IP: net.ParseIP("1.1.1.1"), Port: 12345}))
+	tcpAddr, err := net.ResolveTCPAddr("tcp", "1.1.1.1:12345")
+	require.NoError(t, err)
+	m1 := NewAnonySimMsg(NewReqPeers(tcpAddr))
 	require.Equal(t, REQ_PEERS, m1.Type())
 
 	bz, err := m1.Encode()
