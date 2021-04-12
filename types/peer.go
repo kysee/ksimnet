@@ -23,7 +23,7 @@ type Peer interface {
 const PeerIDSize = 32 // 32 bytes == 256 bits
 type PeerID [PeerIDSize]byte
 
-func NewPeerID() PeerID {
+func NewRandPeerID() PeerID {
 	var r PeerID
 	_, err := rand.Read(r[:])
 	if err != nil {
@@ -32,7 +32,12 @@ func NewPeerID() PeerID {
 	return r
 }
 
-func (pid *PeerID) Equal(o PeerID) bool {
+func NewZeroPeerID() PeerID {
+	var r PeerID
+	return r
+}
+
+func (pid *PeerID) Equal(o *PeerID) bool {
 	return pid.Equal(o)
 }
 

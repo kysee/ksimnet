@@ -62,7 +62,10 @@ Loop:
 			//fmt.Println("[",nc.LocalAddr().String(),"] receiveRoutine notified:", seq, "front:", nc.rxSeqFront, "end:", nc.rxSeqEnd, "ch length:", len(nc.rxCh))
 
 			if d := nc.pickRX(); d != nil {
-				nc.Worker().OnRecv(nc, d, len(d))
+				if _, err := nc.Worker().OnRecv(nc, d, len(d)); err != nil {
+					//log.Printf("[receiveRoutine] %v\n", err)
+				}
+
 			}
 		case <-nc.done:
 			break Loop

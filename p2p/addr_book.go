@@ -33,17 +33,17 @@ func (ab *AddrBook) Find(addr *net.TCPAddr) *net.TCPAddr {
 	return nil
 }
 
-func (ab *AddrBook) Addrs() []net.TCPAddr {
+func (ab *AddrBook) Addrs() []*net.TCPAddr {
 	ab.mtx.RLock()
 	defer ab.mtx.RUnlock()
 
-	ret := make([]net.TCPAddr, len(ab.addrs))
+	ret := make([]*net.TCPAddr, len(ab.addrs))
 	for i, v := range ab.addrs {
-		ret[i] = *v
+		ret[i] = v
 	}
 	return ret
 }
 
 func EqualAddr(a1, a2 *net.TCPAddr) bool {
-	return (a1.IP.Equal(a2.IP) && a1.Port == a2.Port && a1.Zone == a2.Zone)
+	return a1.IP.Equal(a2.IP) && a1.Port == a2.Port && a1.Zone == a2.Zone
 }
