@@ -1,6 +1,7 @@
 package p2p
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -19,31 +20,14 @@ const (
 
 type SimMsg struct {
 	Header `json:"header"`
-	Body   interface{} `json:"body"`
+	Body   types.MessageBody `json:"body"`
 }
 
-func NewAnonySimMsg(body interface{}) *SimMsg {
+func NewAnonySimMsg(body types.MessageBody) *SimMsg {
 	return NewSimMsg(types.NewZeroPeerID(), types.NewZeroPeerID(), body)
 }
-func NewSimMsg(src, dst types.PeerID, body interface{}) *SimMsg {
-	var mtype uint16
-	var bzBody []byte
-	var err error
-
-	switch body.(type) {
-	case *ReqPeers:
-		mtype = REQ_PEERS
-		bzBody, err = body.(*ReqPeers).Encode()
-	case *AckPeers:
-		mtype = ACK_PEERS
-		bzBody, err = body.(*AckPeers).Encode()
-	case *BytesMsg:
-		mtype = USER_MSG_TYPE
-		bzBody, err = body.(*BytesMsg).Encode()
-	default:
-		panic("unknown message type")
-	}
-
+func NewSimMsg(src, dst types.PeerID, body types.MessageBody) *SimMsg {
+	bzBody, err := body.Encode()
 	if err != nil {
 		return nil
 	}
@@ -51,7 +35,7 @@ func NewSimMsg(src, dst types.PeerID, body interface{}) *SimMsg {
 	return &SimMsg{
 		Header: Header{
 			MsgID:     types.NewMsgID(bzBody),
-			MsgType:   mtype,
+			MsgType:   body.Type(),
 			SrcPeerID: src,
 			DstPeerID: dst,
 		},
@@ -202,7 +186,6 @@ func (h *Header) String() string {
 }
 
 type ReqPeers struct {
-	//Header
 	ExportAddr *net.TCPAddr `json:"export_addr"`
 }
 
@@ -226,6 +209,19 @@ func decodeTcpAddr(d []byte) *net.TCPAddr {
 	return &net.TCPAddr{
 		IP:   net.IPv4(d[0], d[1], d[2], d[3]),
 		Port: int(binary.BigEndian.Uint16(d[4:EncodedTCPAddrSize])),
+	}
+}
+
+func (m *ReqPeers) Type() uint16 {
+	return REQ_PEERS
+}
+
+func (m *ReqPeers) Hash() ([]byte, error) {
+	if bz, err := m.Encode(); err != nil {
+		return nil, err
+	} else {
+		h := sha256.Sum256(bz)
+		return h[:], nil
 	}
 }
 
@@ -257,17 +253,26 @@ type AckPeers struct {
 }
 
 func NewAckPeers() *AckPeers {
-	return &AckPeers{
-		//Header: Header{
-		//	MsgType: ACK_PEERS,
-		//},
-	}
+	return &AckPeers{}
 }
 
 //var _ types.Message = (*AckPeers)(nil)
 
 func (m *AckPeers) AddPeerAddr(addr *net.TCPAddr) {
 	m.Addrs = append(m.Addrs, addr)
+}
+
+func (m *AckPeers) Type() uint16 {
+	return ACK_PEERS
+}
+
+func (m *AckPeers) Hash() ([]byte, error) {
+	if bz, err := m.Encode(); err != nil {
+		return nil, err
+	} else {
+		h := sha256.Sum256(bz)
+		return h[:], nil
+	}
 }
 
 func (m *AckPeers) Encode() ([]byte, error) {
@@ -314,7 +319,6 @@ func (m *AckPeers) String() string {
 }
 
 type BytesMsg struct {
-	//Header
 	Data []byte `json:"data"`
 }
 
@@ -334,6 +338,19 @@ func NewBytesMsg(data []byte) *BytesMsg {
 
 func (m *BytesMsg) SetData(body []byte) {
 	m.Data = body
+}
+
+func (m *BytesMsg) Type() uint16 {
+	return USER_MSG_TYPE
+}
+
+func (m *BytesMsg) Hash() ([]byte, error) {
+	if bz, err := m.Encode(); err != nil {
+		return nil, err
+	} else {
+		h := sha256.Sum256(bz)
+		return h[:], nil
+	}
 }
 
 func (m *BytesMsg) Encode() ([]byte, error) {

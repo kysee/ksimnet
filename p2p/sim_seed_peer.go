@@ -80,11 +80,11 @@ func (seed *SimSeedPeer) HostIP() net.IP {
 	return seed.hostIP
 }
 
-func (seed *SimSeedPeer) HostAddr() net.TCPAddr {
+func (seed *SimSeedPeer) HostAddr() *net.TCPAddr {
 	seed.mtx.RLock()
 	defer seed.mtx.RUnlock()
 
-	return *seed.listener.ListenAddr()
+	return seed.listener.ListenAddr()
 }
 
 func (seed *SimSeedPeer) OnRecv(conn types.NetConn, pack []byte, i int) (int, error) {

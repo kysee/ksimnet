@@ -20,6 +20,21 @@ type Message interface {
 	String() string
 }
 
+type MessageHeader interface {
+	ID() MsgID
+	Type() uint16
+	Src() PeerID
+	Dst() PeerID
+}
+
+type MessageBody interface {
+	Type() uint16
+	Encode() ([]byte, error)
+	Decode([]byte) error
+	String() string
+	Hash() ([]byte, error)
+}
+
 func NewMsgID(d []byte) MsgID {
 	h := sha256.Sum256(d)
 

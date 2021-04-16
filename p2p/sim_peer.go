@@ -28,10 +28,10 @@ type SimPeer struct {
 	//recvBufs map[uint64][]byte
 	handledMsgIDs map[types.MsgID]interface{}
 
-	seedAddr net.TCPAddr
+	seedAddr *net.TCPAddr
 }
 
-func NewSimPeer(hostIP net.IP, minOthers, maxOthers int, seedAddr net.TCPAddr) *SimPeer {
+func NewSimPeer(hostIP net.IP, minOthers, maxOthers int, seedAddr *net.TCPAddr) *SimPeer {
 	peer := &SimPeer{
 		id:     types.NewRandPeerID(),
 		hostIP: hostIP,
@@ -52,11 +52,19 @@ func NewSimPeer(hostIP net.IP, minOthers, maxOthers int, seedAddr net.TCPAddr) *
 	return peer
 }
 
-func (peer *SimPeer) SetSeed(addr net.TCPAddr) {
+func (peer *SimPeer) SetSeed(addr *net.TCPAddr) {
 	peer.mtx.Lock()
 	defer peer.mtx.Unlock()
 
 	peer.seedAddr = addr
+}
+
+func (peer *SimPeer) IsMsgHandled(msgId types.MsgID) bool {
+	peer.mtx.RLock()
+	defer peer.mtx.RUnlock()
+
+	_, ok := peer.handledMsgIDs[msgId]
+	return ok
 }
 
 func (peer *SimPeer) Start(listenPort int) error {
