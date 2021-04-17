@@ -20,7 +20,8 @@ func TestSimP2P(t *testing.T) {
 
 	log.Println("Start Seed ...")
 	seedPeer := p2p.NewSimSeedPeer(net.IPv4(byte(200), byte(200), byte(200), byte(200)), MinPeerCnt, MaxPeerCnt)
-	seedPeer.Start(55555)
+	err := seedPeer.Start(55555)
+	require.NoError(t, err)
 
 	log.Println("Create SimPeers...")
 	peers := make([]*p2p.SimPeer, PeerCnt)
@@ -31,7 +32,8 @@ func TestSimP2P(t *testing.T) {
 	log.Println("Start SimPeers and Connecting ...")
 
 	for _, p := range peers {
-		p.Start(55555)
+		err := p.Start(55555)
+		require.NoError(t, err)
 	}
 
 	for {
@@ -84,7 +86,7 @@ func TestSimP2P(t *testing.T) {
 	for _, p := range peers {
 		_msgIDs := p.MsgIDs()
 		require.Equal(t, len(msgIDs), len(_msgIDs))
-		for k, _ := range msgIDs {
+		for k := range msgIDs {
 			_, ok := _msgIDs[k]
 			require.True(t, ok)
 			log.Printf("Peer(%s) had handled the message(%s)\n", p.HostIP(), &k)
