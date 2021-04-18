@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/kysee/ksimnet/types"
 	"log"
+	"math/rand"
 	"net"
 	"sync"
 )
@@ -30,12 +31,14 @@ type NetPoint struct {
 	//txSeqLast int
 
 	done chan struct{}
+
+	asyncMode bool
 }
 
-func NewNetPoint(worker types.NetWorker, hostPort int) *NetPoint {
+func NewNetPoint(worker types.NetWorker, hostPort int, asyncMode bool) *NetPoint {
 	hostIp := worker.HostIP()
 	if hostPort == 0 {
-		hostPort = NewPort(hostIp)
+		hostPort = PickPort(hostIp)
 	}
 
 	ret := &NetPoint{
@@ -46,10 +49,13 @@ func NewNetPoint(worker types.NetWorker, hostPort int) *NetPoint {
 		rxSeqEnd:   0,
 		rxCh:       make(chan int, 1024),
 		//txBuf: make(map[int][]byte),
-		done: make(chan struct{}),
+		done:      make(chan struct{}),
+		asyncMode: asyncMode,
 	}
 
-	go receiveRoutine(ret)
+	if asyncMode {
+		go receiveRoutine(ret)
+	}
 
 	return ret
 }
@@ -299,20 +305,42 @@ func (np *NetPoint) RemotePort() int {
 }
 
 var addrMtx sync.Mutex
-var (
-	a byte = 1
-	b byte = 0
-	c byte = 0
-	d byte = 0
-)
-var ports map[string]int = make(map[string]int)
+var ipv4s []net.IP
 
-func NewIP() net.IP {
-	d++
-	return net.IPv4(a, b, c, d)
+func IsUsedIp4(ip net.IP) bool {
+	addrMtx.Lock()
+	defer addrMtx.Unlock()
+
+	for _, _ip := range ipv4s {
+		if ip.Equal(_ip) {
+			return true
+		}
+	}
+	return false
 }
 
-func NewPort(hostIp net.IP) int {
+func PickIP() net.IP {
+	for i := 0; i < 256*256*256*256; i++ {
+		a := byte(rand.Intn(255) + 1)
+		b := byte(rand.Intn(256))
+		c := byte(rand.Intn(256))
+		d := byte(rand.Intn(255) + 1)
+
+		ret := net.IPv4(a, b, c, d)
+		if !IsUsedIp4(ret) {
+			addrMtx.Lock()
+			defer addrMtx.Unlock()
+
+			ipv4s = append(ipv4s, ret)
+			return ret
+		}
+	}
+	return nil
+}
+
+var ports map[string]int = make(map[string]int)
+
+func PickPort(hostIp net.IP) int {
 	addrMtx.Lock()
 	defer addrMtx.Unlock()
 
@@ -328,7 +356,7 @@ func NewPort(hostIp net.IP) int {
 func BindPort(hostIp net.IP) *net.TCPAddr {
 	tcpAddr := &net.TCPAddr{
 		IP:   hostIp,
-		Port: NewPort(hostIp),
+		Port: PickPort(hostIp),
 	}
 	return tcpAddr
 }

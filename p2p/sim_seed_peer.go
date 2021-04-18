@@ -23,7 +23,7 @@ type SimSeedPeer struct {
 
 func NewSimSeedPeer(hostIP net.IP, minOthers, maxOthers int) *SimSeedPeer {
 	peer := &SimSeedPeer{
-		id:     types.NewRandPeerID(),
+		id:     types.NewPeerID(hostIP),
 		hostIP: hostIP,
 
 		stopCh:    make(chan interface{}),
@@ -53,7 +53,11 @@ func (seed *SimSeedPeer) Start(listenPort int) error {
 	return nil
 }
 
-func (seed *SimSeedPeer) Send(d []byte) (int, error) {
+func (seed *SimSeedPeer) Send(mb types.MessageBody) (int, error) {
+	panic("implement me")
+}
+
+func (seed *SimSeedPeer) SendTo(toId types.PeerID, mb types.MessageBody) (int, error) {
 	panic("implement me")
 }
 

@@ -52,19 +52,22 @@ func (sm *SimMsg) Encode() ([]byte, error) {
 		return nil, err
 	}
 
-	var body []byte
+	//var body []byte
+	//switch sm.Body.(type) {
+	//case *ReqPeers:
+	//	body, err = sm.Body.(*ReqPeers).Encode()
+	//case *AckPeers:
+	//	body, err = sm.Body.(*AckPeers).Encode()
+	//case *BytesMsg:
+	//	body, err = sm.Body.(*BytesMsg).Encode()
+	//default:
+	//	panic("unknown message type")
+	//}
 
-	switch sm.Body.(type) {
-	case *ReqPeers:
-		body, err = sm.Body.(*ReqPeers).Encode()
-	case *AckPeers:
-		body, err = sm.Body.(*AckPeers).Encode()
-	case *BytesMsg:
-		body, err = sm.Body.(*BytesMsg).Encode()
-	default:
-		panic("unknown message type")
+	body, err := sm.Body.Encode()
+	if err != nil {
+		return nil, err
 	}
-
 	return append(header, body...), nil
 }
 
@@ -192,23 +195,6 @@ type ReqPeers struct {
 func NewReqPeers(exAddr *net.TCPAddr) *ReqPeers {
 	return &ReqPeers{
 		ExportAddr: exAddr,
-	}
-}
-
-const EncodedTCPAddrSize = 6
-
-func encodeTcpAddr(addr *net.TCPAddr) []byte {
-	buf := make([]byte, 6)
-	ipv4 := addr.IP.To4()
-	copy(buf[:], ipv4[:])
-	binary.BigEndian.PutUint16(buf[4:], uint16(addr.Port))
-	return buf
-}
-
-func decodeTcpAddr(d []byte) *net.TCPAddr {
-	return &net.TCPAddr{
-		IP:   net.IPv4(d[0], d[1], d[2], d[3]),
-		Port: int(binary.BigEndian.Uint16(d[4:EncodedTCPAddrSize])),
 	}
 }
 
@@ -438,3 +424,20 @@ func (m *BytesMsg) String() string {
 //	}
 //	return string(bz)
 //}
+
+const EncodedTCPAddrSize = 6
+
+func encodeTcpAddr(addr *net.TCPAddr) []byte {
+	buf := make([]byte, 6)
+	ipv4 := addr.IP.To4()
+	copy(buf[:], ipv4[:])
+	binary.BigEndian.PutUint16(buf[4:], uint16(addr.Port))
+	return buf
+}
+
+func decodeTcpAddr(d []byte) *net.TCPAddr {
+	return &net.TCPAddr{
+		IP:   net.IPv4(d[0], d[1], d[2], d[3]),
+		Port: int(binary.BigEndian.Uint16(d[4:EncodedTCPAddrSize])),
+	}
+}

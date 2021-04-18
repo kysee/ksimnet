@@ -55,7 +55,7 @@ func TestSimP2P(t *testing.T) {
 
 	for i := 0; i < MsgCnt; i++ {
 		j := rand.Intn(PeerCnt)
-		_, err := peers[j].Send([]byte("Message Number is " + strconv.Itoa(i)))
+		_, err := peers[j].Send(p2p.NewBytesMsg([]byte("Message Number is " + strconv.Itoa(i))))
 		require.NoError(t, err)
 
 		rn := time.Duration(rand.Intn(100) + 1)
@@ -66,7 +66,7 @@ func TestSimP2P(t *testing.T) {
 		time.Sleep(time.Second * 3)
 		totalMsgCnt := 0
 		for _, p := range peers {
-			n := p.MsgCnt()
+			n := p.HandledMsgCnt()
 			totalMsgCnt += n
 		}
 
@@ -82,9 +82,9 @@ func TestSimP2P(t *testing.T) {
 
 	log.Println("Validate messages...")
 
-	msgIDs := peers[0].MsgIDs()
+	msgIDs := peers[0].HandledMsgIDs()
 	for _, p := range peers {
-		_msgIDs := p.MsgIDs()
+		_msgIDs := p.HandledMsgIDs()
 		require.Equal(t, len(msgIDs), len(_msgIDs))
 		for k := range msgIDs {
 			_, ok := _msgIDs[k]

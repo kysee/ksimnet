@@ -2,6 +2,7 @@ package types
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 )
@@ -9,12 +10,13 @@ import (
 type Peer interface {
 	ID() PeerID
 
-	Start(listenPort int) error
-	Send(d []byte) (int, error)
+	Start(int) error
+	Send(MessageBody) (int, error)
+	SendTo(PeerID, MessageBody) (int, error)
 	Stop()
 
 	PeerCnt() int
-	HasPeer(id PeerID) bool
+	HasPeer(PeerID) bool
 
 	ClientWorker
 	ServerWorker
@@ -23,7 +25,18 @@ type Peer interface {
 const PeerIDSize = 32 // 32 bytes == 256 bits
 type PeerID [PeerIDSize]byte
 
-func NewRandPeerID() PeerID {
+func NewPeerID(seed []byte) PeerID {
+	if seed == nil {
+		return newRandPeerID()
+	}
+
+	var r PeerID
+	h := sha256.Sum256(seed)
+	copy(r[:], h[:])
+	return r
+}
+
+func newRandPeerID() PeerID {
 	var r PeerID
 	_, err := rand.Read(r[:])
 	if err != nil {

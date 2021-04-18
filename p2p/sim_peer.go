@@ -33,7 +33,7 @@ type SimPeer struct {
 
 func NewSimPeer(hostIP net.IP, minOthers, maxOthers int, seedAddr *net.TCPAddr) *SimPeer {
 	peer := &SimPeer{
-		id:     types.NewRandPeerID(),
+		id:     types.NewPeerID(hostIP),
 		hostIP: hostIP,
 		others: make(map[types.PeerID]types.NetConn),
 
@@ -90,11 +90,15 @@ func (peer *SimPeer) ID() types.PeerID {
 	return peer.id //(int64)(binary.BigEndian.Uint64(peer.hostIP.To4()[:]))
 }
 
-func (peer *SimPeer) Send(d []byte) (int, error) {
+func (peer *SimPeer) Send(mb types.MessageBody) (int, error) {
+	return peer.SendTo(types.NewZeroPeerID(), mb)
+}
+
+func (peer *SimPeer) SendTo(toId types.PeerID, mb types.MessageBody) (int, error) {
 	peer.mtx.RLock()
 	defer peer.mtx.RUnlock()
 
-	m := NewAnonySimMsg(NewBytesMsg(d))
+	m := NewSimMsg(peer.id, toId, mb)
 
 	pack, err := m.Encode()
 	if err != nil {
@@ -117,6 +121,24 @@ func (peer *SimPeer) PeerCnt() int {
 	return len(peer.others)
 }
 
+func (peer *SimPeer) PeerIDs() []types.PeerID {
+	peer.mtx.RLock()
+	defer peer.mtx.RUnlock()
+
+	var ret []types.PeerID
+	for k, _ := range peer.others {
+		ret = append(ret, k)
+	}
+	return ret
+}
+
+func (peer *SimPeer) GetPeerConn(id types.PeerID) types.NetConn {
+	peer.mtx.RLock()
+	defer peer.mtx.RUnlock()
+
+	return peer.others[id]
+}
+
 func (peer *SimPeer) HasPeer(id types.PeerID) bool {
 	peer.mtx.RLock()
 	defer peer.mtx.RUnlock()
@@ -132,7 +154,7 @@ func (peer *SimPeer) HostIP() net.IP {
 	return peer.hostIP
 }
 
-func (peer *SimPeer) MsgIDs() map[types.MsgID]interface{} {
+func (peer *SimPeer) HandledMsgIDs() map[types.MsgID]interface{} {
 	peer.mtx.RLock()
 	defer peer.mtx.RUnlock()
 
@@ -143,7 +165,7 @@ func (peer *SimPeer) MsgIDs() map[types.MsgID]interface{} {
 	return ret
 }
 
-func (peer *SimPeer) MsgCnt() int {
+func (peer *SimPeer) HandledMsgCnt() int {
 	peer.mtx.RLock()
 	defer peer.mtx.RUnlock()
 
@@ -151,8 +173,7 @@ func (peer *SimPeer) MsgCnt() int {
 }
 
 func (peer *SimPeer) OnConnect(conn types.NetConn) {
-	var peerId types.PeerID
-	copy(peerId[:], []byte(conn.RemoteIP().String()))
+	peerId := types.NewPeerID(conn.RemoteIP())
 
 	peer.mtx.Lock()
 	defer peer.mtx.Unlock()
@@ -164,11 +185,10 @@ func (peer *SimPeer) OnConnect(conn types.NetConn) {
 }
 
 func (peer *SimPeer) OnAccept(conn types.NetConn) error {
+	peerId := types.NewPeerID(conn.RemoteIP())
+
 	peer.mtx.Lock()
 	defer peer.mtx.Unlock()
-
-	var peerId types.PeerID
-	copy(peerId[:], []byte(conn.RemoteIP().String()))
 
 	if _, ok := peer.others[peerId]; ok {
 		return errors.New(fmt.Sprintf("the peer(%s) is already connected", conn.RemoteIP()))
@@ -206,21 +226,22 @@ func (peer *SimPeer) OnRecv(conn types.NetConn, pack []byte, sz int) (int, error
 				}
 			}
 		}
-	} else {
+		return sz, nil
+	} else if header.Dst() == types.NewZeroPeerID() {
+		// broadcast...
 		peer.handledMsgIDs[header.MsgID] = struct{}{}
 		peer.broadcastCh <- pack
 		//log.Printf("Peer(%s) has handled the message(%d,%s)\n", peer.hostIP, header.MsgType, &header.MsgID)
 	}
 
-	return sz, nil
+	return 0, nil
 }
 
 func (peer *SimPeer) OnClose(conn types.NetConn) {
 	peer.mtx.Lock()
 	defer peer.mtx.Unlock()
 
-	var peerId types.PeerID
-	copy(peerId[:], []byte(conn.RemoteIP().String()))
+	peerId := types.NewPeerID(conn.RemoteIP())
 	delete(peer.others, peerId)
 
 	//log.Printf("OnClose(%s), peer count: %d\n", conn.Key(), len(peer.others))
@@ -255,7 +276,7 @@ Loop:
 			listenAddr := me.listener.ListenAddr()
 			me.mtx.RUnlock()
 
-			np := simnet.NewNetPoint(me, 0 /*bind unused port*/)
+			np := simnet.NewNetPoint(me, 0 /*bind unused port*/, true)
 			if err := np.Connect(seedAddr.String()); err == nil {
 
 				reqPeersMsg := NewAnonySimMsg(NewReqPeers(listenAddr))
@@ -310,14 +331,11 @@ Loop:
 			if len(addrs) > 0 {
 
 				for _, toAddr := range addrs {
-					//rdx := rand.Intn(len(addrs))
-					//toAddr := addrs[rdx]
 
-					var peerId types.PeerID
-					copy(peerId[:], []byte(toAddr.IP.String()))
+					peerId := types.NewPeerID(toAddr.IP)
 
 					if !me.HasPeer(peerId) && !toAddr.IP.Equal(me.HostIP()) {
-						np := simnet.NewNetPoint(me, 0 /*bind unused port*/)
+						np := simnet.NewNetPoint(me, 0 /*bind unused port*/, true)
 						if err := np.Connect(toAddr.String()); err != nil {
 							//log.Printf("The local peer(%s) can not connect to the peer(%v): %s\n",
 							//	me.HostIP(), toAddr, err)
@@ -341,14 +359,29 @@ Loop:
 	for {
 		select {
 		case brdPack := <-me.broadcastCh:
+			h := &Header{}
+			if err := h.Decode(brdPack); err != nil {
+				panic(err)
+			}
 
-			me.mtx.RLock()
-			for _, conn := range me.others {
-				if _, err := conn.Write(brdPack); err != nil {
-					panic("writing to peer(" + conn.Key() + ") is failed : " + err.Error())
+			dstId := h.Dst()
+			if dstId == types.NewZeroPeerID() {
+				me.mtx.RLock()
+				for _, conn := range me.others {
+					if _, err := conn.Write(brdPack); err != nil {
+						panic("writing to peer(" + conn.Key() + ") is failed : " + err.Error())
+					}
+				}
+				me.mtx.RUnlock()
+			} else {
+				if conn := me.GetPeerConn(dstId); conn != nil {
+					if _, err := conn.Write(brdPack); err != nil {
+						panic("writing to peer(" + conn.Key() + ") is failed : " + err.Error())
+					}
+				} else {
+					panic("not found peer id(" + dstId.String() + ")")
 				}
 			}
-			me.mtx.RUnlock()
 
 		case <-me.stopCh:
 			break Loop

@@ -38,7 +38,7 @@ func TestPingPong(t *testing.T) {
 			sendBuf: make([]string, testMsgCnt),
 		}
 
-		np := simnet.NewNetPoint(capps[i], 0)
+		np := simnet.NewNetPoint(capps[i], 0, true)
 		err := np.Connect(serverTcpAddr)
 		require.NoError(t, err)
 	}
