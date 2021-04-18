@@ -185,7 +185,7 @@ Loop:
 
 					ip := tcpAddr.IP.String()
 					if !peer.HasPeer(ip) && ip != peer.HostIP().String() {
-						np := simnet.NewNetPoint(peer, 0 /*bind unused port*/)
+						np := simnet.NewNetPoint(peer, 0 /*bind unused port*/, true)
 						if err := np.Connect(addr); err == nil {
 							break
 						} else {
