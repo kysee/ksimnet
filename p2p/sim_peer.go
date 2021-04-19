@@ -361,7 +361,6 @@ Loop:
 		case brdPack := <-me.broadcastCh:
 			h := &SimMsgHeader{}
 			if err := h.Decode(brdPack); err != nil {
-				log.Printf("panic...... %\n", err)
 				panic(err)
 			}
 
