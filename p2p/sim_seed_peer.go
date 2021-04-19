@@ -53,11 +53,11 @@ func (seed *SimSeedPeer) Start(listenPort int) error {
 	return nil
 }
 
-func (seed *SimSeedPeer) Send(mb types.MessageBody) (int, error) {
+func (seed *SimSeedPeer) Send(mb types.MsgBody) (int, error) {
 	panic("implement me")
 }
 
-func (seed *SimSeedPeer) SendTo(toId types.PeerID, mb types.MessageBody) (int, error) {
+func (seed *SimSeedPeer) SendTo(toId types.PeerID, mb types.MsgBody) (int, error) {
 	panic("implement me")
 }
 
@@ -100,7 +100,7 @@ func (seed *SimSeedPeer) OnRecv(conn types.NetConn, pack []byte, i int) (int, er
 
 	//log.Printf("[SimSeed::OnReceive] Peer(%s) receives a pack\n", seed.hostIP)
 
-	header := &Header{}
+	header := &SimMsgHeader{}
 	if err := header.Decode(pack); err != nil {
 		return 0, err
 	}

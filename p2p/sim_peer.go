@@ -90,11 +90,11 @@ func (peer *SimPeer) ID() types.PeerID {
 	return peer.id //(int64)(binary.BigEndian.Uint64(peer.hostIP.To4()[:]))
 }
 
-func (peer *SimPeer) Send(mb types.MessageBody) (int, error) {
+func (peer *SimPeer) Send(mb types.MsgBody) (int, error) {
 	return peer.SendTo(types.NewZeroPeerID(), mb)
 }
 
-func (peer *SimPeer) SendTo(toId types.PeerID, mb types.MessageBody) (int, error) {
+func (peer *SimPeer) SendTo(toId types.PeerID, mb types.MsgBody) (int, error) {
 	peer.mtx.RLock()
 	defer peer.mtx.RUnlock()
 
@@ -203,7 +203,7 @@ func (peer *SimPeer) OnRecv(conn types.NetConn, pack []byte, sz int) (int, error
 	defer peer.mtx.Unlock()
 
 	//log.Printf("[SimPeer::OnReceive] Peer(%s) receives a pack\n", peer.hostIP)
-	header := Header{}
+	header := SimMsgHeader{}
 	if err := header.Decode(pack); err != nil {
 		return 0, err
 	}
@@ -359,7 +359,7 @@ Loop:
 	for {
 		select {
 		case brdPack := <-me.broadcastCh:
-			h := &Header{}
+			h := &SimMsgHeader{}
 			if err := h.Decode(brdPack); err != nil {
 				panic(err)
 			}

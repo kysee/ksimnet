@@ -19,21 +19,21 @@ const (
 )
 
 type SimMsg struct {
-	Header `json:"header"`
-	Body   types.MessageBody `json:"body"`
+	SimMsgHeader `json:"header"`
+	Body         types.MsgBody `json:"body"`
 }
 
-func NewAnonySimMsg(body types.MessageBody) *SimMsg {
+func NewAnonySimMsg(body types.MsgBody) *SimMsg {
 	return NewSimMsg(types.NewZeroPeerID(), types.NewZeroPeerID(), body)
 }
-func NewSimMsg(src, dst types.PeerID, body types.MessageBody) *SimMsg {
+func NewSimMsg(src, dst types.PeerID, body types.MsgBody) *SimMsg {
 	bzBody, err := body.Encode()
 	if err != nil {
 		return nil
 	}
 
 	return &SimMsg{
-		Header: Header{
+		SimMsgHeader: SimMsgHeader{
 			MsgID:     types.NewMsgID(bzBody),
 			MsgType:   body.Type(),
 			SrcPeerID: src,
@@ -47,7 +47,7 @@ var _ types.Message = (*SimMsg)(nil)
 
 func (sm *SimMsg) Encode() ([]byte, error) {
 
-	header, err := sm.Header.Encode()
+	header, err := sm.SimMsgHeader.Encode()
 	if err != nil {
 		return nil, err
 	}
@@ -72,11 +72,11 @@ func (sm *SimMsg) Encode() ([]byte, error) {
 }
 
 func (sm *SimMsg) Decode(buf []byte) error {
-	if err := sm.Header.Decode(buf); err != nil {
+	if err := sm.SimMsgHeader.Decode(buf); err != nil {
 		return err
 	}
 
-	switch sm.Header.MsgType {
+	switch sm.SimMsgHeader.MsgType {
 	case REQ_PEERS:
 		m := &ReqPeers{}
 		if err := m.Decode(buf[HeaderSize:]); err != nil {
@@ -115,42 +115,42 @@ func (sm *SimMsg) String() string {
 
 const HeaderSize = types.MsgIDSize + types.MsgTypeSize + types.PeerIDSize*2
 
-type Header struct {
+type SimMsgHeader struct {
 	MsgID     types.MsgID  `json:"msg_id"`
 	MsgType   uint16       `json:"msg_type"`
 	SrcPeerID types.PeerID `json:"src"`
 	DstPeerID types.PeerID `json:"dst,omitempty"`
 }
 
-func (h *Header) ID() types.MsgID {
+func (h *SimMsgHeader) ID() types.MsgID {
 	return h.MsgID
 }
 
-func (h *Header) SetType(ty uint16) {
+func (h *SimMsgHeader) SetType(ty uint16) {
 	h.MsgType = ty
 }
 
-func (h *Header) Type() uint16 {
+func (h *SimMsgHeader) Type() uint16 {
 	return h.MsgType
 }
 
-func (h *Header) SetSrc(peerId types.PeerID) {
+func (h *SimMsgHeader) SetSrc(peerId types.PeerID) {
 	h.SrcPeerID = peerId
 }
 
-func (h *Header) Src() types.PeerID {
+func (h *SimMsgHeader) Src() types.PeerID {
 	return h.SrcPeerID
 }
 
-func (h *Header) SetDst(peerId types.PeerID) {
+func (h *SimMsgHeader) SetDst(peerId types.PeerID) {
 	h.DstPeerID = peerId
 }
 
-func (h *Header) Dst() types.PeerID {
+func (h *SimMsgHeader) Dst() types.PeerID {
 	return h.DstPeerID
 }
 
-func (h *Header) Encode() ([]byte, error) {
+func (h *SimMsgHeader) Encode() ([]byte, error) {
 
 	buf := make([]byte, HeaderSize)
 
@@ -165,7 +165,7 @@ func (h *Header) Encode() ([]byte, error) {
 	return buf, nil
 }
 
-func (h *Header) Decode(buf []byte) error {
+func (h *SimMsgHeader) Decode(buf []byte) error {
 	if len(buf) < HeaderSize {
 		return errors.New("too small buffer")
 	}
@@ -184,7 +184,7 @@ func (h *Header) Decode(buf []byte) error {
 	return nil
 }
 
-func (h *Header) String() string {
+func (h *SimMsgHeader) String() string {
 	bz, err := json.Marshal(h)
 	if err != nil {
 		return err.Error()
@@ -238,7 +238,6 @@ func (m *ReqPeers) String() string {
 }
 
 type AckPeers struct {
-	//Header
 	Addrs []*net.TCPAddr `json:"addrs"`
 }
 
@@ -266,13 +265,6 @@ func (m *AckPeers) Hash() ([]byte, error) {
 }
 
 func (m *AckPeers) Encode() ([]byte, error) {
-	// buf = [Header + Addr Size + Addr1 + Addr2 + ... + Addr N]
-	//buf := make([]byte, HeaderSize+4+len(m.Addrs)*EncodedTCPAddrSize)
-
-	//if err := m.Header.Encode(buf); err != nil {
-	//	return nil, err
-	//}
-
 	// [Addr Size + Addr1 + Addr2 + ... + Addr N]
 	buf := make([]byte, 4+len(m.Addrs)*EncodedTCPAddrSize) //buf[HeaderSize:]
 	binary.BigEndian.PutUint32(buf[:], uint32(len(m.Addrs)))
@@ -285,11 +277,6 @@ func (m *AckPeers) Encode() ([]byte, error) {
 }
 
 func (m *AckPeers) Decode(buf []byte) error {
-	//if err := m.Header.Decode(buf); err != nil {
-	//	return err
-	//}
-
-	//body := buf[HeaderSize:]
 	addrCnt := binary.BigEndian.Uint32(buf[:4]) // addr count
 	m.Addrs = make([]*net.TCPAddr, addrCnt)
 
@@ -316,12 +303,6 @@ type BytesMsg struct {
 
 func NewBytesMsg(data []byte) *BytesMsg {
 	return &BytesMsg{
-		//Header: Header{
-		//	MsgID:   id,
-		//	MsgType: mtype,
-		//	SrcPeerID: src,
-		//	DstPeerID: dst,
-		//},
 		Data: data,
 	}
 }
@@ -344,23 +325,13 @@ func (m *BytesMsg) Hash() ([]byte, error) {
 }
 
 func (m *BytesMsg) Encode() ([]byte, error) {
-	//buf := make([]byte, HeaderSize+len(m.Data))
-	//if err := m.Header.Encode(buf); err != nil {
-	//	return nil, err
-	//}
-
 	buf := make([]byte, len(m.Data))
-	//body := buf[HeaderSize:]
 	copy(buf, m.Data)
 
 	return buf, nil
 }
 
 func (m *BytesMsg) Decode(buf []byte) error {
-	//if err := m.Header.Decode(buf); err != nil {
-	//	return err
-	//}
-
 	m.Data = make([]byte, len(buf))
 	copy(m.Data, buf)
 
@@ -406,28 +377,6 @@ func (m *BytesMsg) String() string {
 	}
 	return string(bz)
 }
-
-//type StrSimMsg struct {
-//	//Header
-//	Data string `json:"body"`
-//}
-//
-//func NewStrSimMsg(mtype uint16, data string) *StrSimMsg {
-//	return &StrSimMsg{
-//		Header: Header{
-//			MsgType: mtype,
-//		},
-//		Data: data,
-//	}
-//}
-//
-//func (m *StrSimMsg) String() string {
-//	bz, err := json.Marshal(m)
-//	if err != nil {
-//		return err.Error()
-//	}
-//	return string(bz)
-//}
 
 const EncodedTCPAddrSize = 6
 

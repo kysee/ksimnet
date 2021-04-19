@@ -9,14 +9,14 @@ import (
 const MsgIDSize = 16 //sha256.Size
 const MsgTypeSize = 2
 
-type MessageHeader interface {
+type MsgHeader interface {
 	ID() MsgID
 	Type() uint16
 	Src() PeerID
 	Dst() PeerID
 }
 
-type MessageBody interface {
+type MsgBody interface {
 	Type() uint16
 	Encode() ([]byte, error)
 	Decode([]byte) error
@@ -24,8 +24,8 @@ type MessageBody interface {
 	Hash() ([]byte, error)
 }
 type Message interface {
-	MessageHeader
-	MessageBody
+	MsgHeader
+	MsgBody
 }
 
 type MsgID [MsgIDSize]byte

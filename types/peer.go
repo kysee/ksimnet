@@ -12,8 +12,8 @@ type Peer interface {
 	ID() PeerID
 
 	Start(int) error
-	Send(MessageBody) (int, error)
-	SendTo(PeerID, MessageBody) (int, error)
+	Send(MsgBody) (int, error)
+	SendTo(PeerID, MsgBody) (int, error)
 	Stop()
 
 	PeerCnt() int
