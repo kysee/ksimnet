@@ -29,6 +29,8 @@ type SimPeer struct {
 	handledMsgIDs map[types.MsgID]interface{}
 
 	seedAddr *net.TCPAddr
+
+	upperPeer types.Peer
 }
 
 var _ types.Peer = (*SimPeer)(nil)
@@ -59,6 +61,13 @@ func (peer *SimPeer) SetSeed(addr *net.TCPAddr) {
 	defer peer.mtx.Unlock()
 
 	peer.seedAddr = addr
+}
+
+func (peer *SimPeer) SetUpperPeer(upper types.Peer) {
+	peer.mtx.Lock()
+	defer peer.mtx.Unlock()
+
+	peer.upperPeer = upper
 }
 
 func (peer *SimPeer) IsMsgHandled(msgId types.MsgID) bool {
@@ -184,6 +193,10 @@ func (peer *SimPeer) OnConnect(conn types.NetConn) {
 		peer.others[peerId] = conn
 		//log.Printf("OnConnect(%s), peer count: %d\n", conn.Key(), len(peer.others))
 	}
+
+	if peer.upperPeer != nil {
+		peer.upperPeer.OnConnect(conn)
+	}
 }
 
 func (peer *SimPeer) OnAccept(conn types.NetConn) error {
@@ -197,6 +210,10 @@ func (peer *SimPeer) OnAccept(conn types.NetConn) error {
 	}
 	peer.others[peerId] = conn
 	//log.Printf("OnAccept(%s), peer count: %d\n", conn.Key(), len(peer.others))
+
+	if peer.upperPeer != nil {
+		return peer.upperPeer.OnAccept(conn)
+	}
 	return nil
 }
 
@@ -236,6 +253,9 @@ func (peer *SimPeer) OnRecv(conn types.NetConn, pack []byte, sz int) (int, error
 		//log.Printf("Peer(%s) has handled the message(%d,%s)\n", peer.hostIP, header.MsgType, &header.MsgID)
 	}
 
+	if peer.upperPeer != nil {
+		return peer.upperPeer.OnRecv(conn, pack, sz)
+	}
 	return 0, nil
 }
 
@@ -248,6 +268,9 @@ func (peer *SimPeer) OnClose(conn types.NetConn) {
 
 	//log.Printf("OnClose(%s), peer count: %d\n", conn.Key(), len(peer.others))
 
+	if peer.upperPeer != nil {
+		peer.upperPeer.OnClose(conn)
+	}
 }
 
 func pexRoutine(me *SimPeer) {
