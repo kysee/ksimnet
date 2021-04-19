@@ -31,6 +31,8 @@ type SimPeer struct {
 	seedAddr *net.TCPAddr
 }
 
+var _ types.Peer = (*SimPeer)(nil)
+
 func NewSimPeer(hostIP net.IP, minOthers, maxOthers int, seedAddr *net.TCPAddr) *SimPeer {
 	peer := &SimPeer{
 		id:     types.NewPeerID(hostIP),
@@ -247,8 +249,6 @@ func (peer *SimPeer) OnClose(conn types.NetConn) {
 	//log.Printf("OnClose(%s), peer count: %d\n", conn.Key(), len(peer.others))
 
 }
-
-var _ types.Peer = (*SimPeer)(nil)
 
 func pexRoutine(me *SimPeer) {
 	c := 1
