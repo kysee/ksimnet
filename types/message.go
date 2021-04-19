@@ -45,15 +45,15 @@ func NewMsgID(d []byte) MsgID {
 
 type MsgID [MsgIDSize]byte
 
-func (mid *MsgID) String() string {
+func (mid MsgID) String() string {
 	return hex.EncodeToString(mid[:])
 }
 
-func (mid *MsgID) MarshalJSON() ([]byte, error) {
+func (mid MsgID) MarshalJSON() ([]byte, error) {
 	return json.Marshal(hex.EncodeToString(mid[:]))
 }
 
-func (mid *MsgID) UnmarshalJSON(s []byte) error {
+func (mid MsgID) UnmarshalJSON(s []byte) error {
 	hexStr := ""
 	if err := json.Unmarshal(s, &hexStr); err != nil {
 		return err
