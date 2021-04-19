@@ -50,19 +50,19 @@ func NewZeroPeerID() PeerID {
 	return r
 }
 
-func (pid *PeerID) Equal(o *PeerID) bool {
+func (pid PeerID) Equal(o PeerID) bool {
 	return pid.Equal(o)
 }
 
-func (pid *PeerID) String() string {
+func (pid PeerID) String() string {
 	return hex.EncodeToString(pid[:])
 }
 
-func (pid *PeerID) MarshalJSON() ([]byte, error) {
+func (pid PeerID) MarshalJSON() ([]byte, error) {
 	return json.Marshal(hex.EncodeToString(pid[:]))
 }
 
-func (pid *PeerID) UnmarshalJSON(s []byte) error {
+func (pid PeerID) UnmarshalJSON(s []byte) error {
 	hexStr := ""
 	if err := json.Unmarshal(s, &hexStr); err != nil {
 		return err
