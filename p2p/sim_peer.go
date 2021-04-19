@@ -280,7 +280,7 @@ Loop:
 			if err := np.Connect(seedAddr.String()); err == nil {
 
 				reqPeersMsg := NewAnonySimMsg(NewReqPeers(listenAddr))
-				reqPeersMsg.SetSrc(me.ID())
+				reqPeersMsg.Header.SetSrc(me.ID())
 				pack, err := reqPeersMsg.Encode()
 				if err != nil {
 					break

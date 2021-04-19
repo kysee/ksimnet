@@ -17,12 +17,13 @@ type MsgHeader interface {
 }
 
 type MsgBody interface {
-	Type() uint16
+	ConstType() uint16
 	Encode() ([]byte, error)
 	Decode([]byte) error
 	String() string
-	Hash() ([]byte, error)
+	Hash() []byte
 }
+
 type Message interface {
 	MsgHeader
 	MsgBody
@@ -30,12 +31,19 @@ type Message interface {
 
 type MsgID [MsgIDSize]byte
 
-func NewMsgID(d []byte) MsgID {
-	h := sha256.Sum256(d)
-
+func CalMsgID(b MsgBody) MsgID {
 	var mid MsgID
-	copy(mid[:], h[:MsgIDSize])
+	copy(mid[:], CalMsgHash(b)[:MsgIDSize])
 	return mid
+}
+
+func CalMsgHash(b MsgBody) []byte {
+	d, err := b.Encode()
+	if err != nil {
+		panic(err)
+	}
+	h := sha256.Sum256(d)
+	return h[:]
 }
 
 func (mid MsgID) String() string {

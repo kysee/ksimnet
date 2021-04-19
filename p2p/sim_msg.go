@@ -1,7 +1,6 @@
 package p2p
 
 import (
-	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -19,23 +18,18 @@ const (
 )
 
 type SimMsg struct {
-	SimMsgHeader `json:"header"`
-	Body         types.MsgBody `json:"body"`
+	Header SimMsgHeader  `json:"header"`
+	Body   types.MsgBody `json:"body"`
 }
 
 func NewAnonySimMsg(body types.MsgBody) *SimMsg {
 	return NewSimMsg(types.NewZeroPeerID(), types.NewZeroPeerID(), body)
 }
 func NewSimMsg(src, dst types.PeerID, body types.MsgBody) *SimMsg {
-	bzBody, err := body.Encode()
-	if err != nil {
-		return nil
-	}
-
 	return &SimMsg{
-		SimMsgHeader: SimMsgHeader{
-			MsgID:     types.NewMsgID(bzBody),
-			MsgType:   body.Type(),
+		Header: SimMsgHeader{
+			MsgID:     types.CalMsgID(body),
+			MsgType:   body.ConstType(),
 			SrcPeerID: src,
 			DstPeerID: dst,
 		},
@@ -45,24 +39,28 @@ func NewSimMsg(src, dst types.PeerID, body types.MsgBody) *SimMsg {
 
 var _ types.Message = (*SimMsg)(nil)
 
+func (sm *SimMsg) ID() types.MsgID {
+	return sm.Header.ID()
+}
+
+func (sm *SimMsg) Type() uint16 {
+	return sm.Header.Type()
+}
+
+func (sm *SimMsg) Src() types.PeerID {
+	return sm.Header.Src()
+}
+
+func (sm *SimMsg) Dst() types.PeerID {
+	return sm.Header.Dst()
+}
+
 func (sm *SimMsg) Encode() ([]byte, error) {
 
-	header, err := sm.SimMsgHeader.Encode()
+	header, err := sm.Header.Encode()
 	if err != nil {
 		return nil, err
 	}
-
-	//var body []byte
-	//switch sm.Body.(type) {
-	//case *ReqPeers:
-	//	body, err = sm.Body.(*ReqPeers).Encode()
-	//case *AckPeers:
-	//	body, err = sm.Body.(*AckPeers).Encode()
-	//case *BytesMsg:
-	//	body, err = sm.Body.(*BytesMsg).Encode()
-	//default:
-	//	panic("unknown message type")
-	//}
 
 	body, err := sm.Body.Encode()
 	if err != nil {
@@ -72,11 +70,11 @@ func (sm *SimMsg) Encode() ([]byte, error) {
 }
 
 func (sm *SimMsg) Decode(buf []byte) error {
-	if err := sm.SimMsgHeader.Decode(buf); err != nil {
+	if err := sm.Header.Decode(buf); err != nil {
 		return err
 	}
 
-	switch sm.SimMsgHeader.MsgType {
+	switch sm.Header.MsgType {
 	case REQ_PEERS:
 		m := &ReqPeers{}
 		if err := m.Decode(buf[HeaderSize:]); err != nil {
@@ -101,16 +99,20 @@ func (sm *SimMsg) Decode(buf []byte) error {
 	return nil
 }
 
-func (sm *SimMsg) Hash() ([]byte, error) {
-	return sm.Body.Hash()
-}
-
 func (sm *SimMsg) String() string {
 	bz, err := json.Marshal(sm)
 	if err != nil {
 		return err.Error()
 	}
 	return string(bz)
+}
+
+func (sm *SimMsg) ConstType() uint16 {
+	return sm.Body.ConstType()
+}
+
+func (sm *SimMsg) Hash() []byte {
+	return sm.Body.Hash()
 }
 
 const HeaderSize = types.MsgIDSize + types.MsgTypeSize + types.PeerIDSize*2
@@ -124,10 +126,6 @@ type SimMsgHeader struct {
 
 func (h *SimMsgHeader) ID() types.MsgID {
 	return h.MsgID
-}
-
-func (h *SimMsgHeader) SetType(ty uint16) {
-	h.MsgType = ty
 }
 
 func (h *SimMsgHeader) Type() uint16 {
@@ -192,9 +190,22 @@ func (h *SimMsgHeader) String() string {
 	return string(bz)
 }
 
+type SimMsgBodyFuncs struct{}
+
+func (b *SimMsgBodyFuncs) String() string {
+	bz, err := json.Marshal(b)
+	if err != nil {
+		return err.Error()
+	}
+	return string(bz)
+}
+
 type ReqPeers struct {
+	SimMsgBodyFuncs
 	ExportAddr *net.TCPAddr `json:"export_addr"`
 }
+
+var _ types.MsgBody = (*ReqPeers)(nil)
 
 func NewReqPeers(exAddr *net.TCPAddr) *ReqPeers {
 	return &ReqPeers{
@@ -202,17 +213,8 @@ func NewReqPeers(exAddr *net.TCPAddr) *ReqPeers {
 	}
 }
 
-func (m *ReqPeers) Type() uint16 {
+func (m *ReqPeers) ConstType() uint16 {
 	return REQ_PEERS
-}
-
-func (m *ReqPeers) Hash() ([]byte, error) {
-	if bz, err := m.Encode(); err != nil {
-		return nil, err
-	} else {
-		h := sha256.Sum256(bz)
-		return h[:], nil
-	}
 }
 
 func (m *ReqPeers) Encode() ([]byte, error) {
@@ -229,39 +231,27 @@ func (m *ReqPeers) Decode(buf []byte) error {
 	return nil
 }
 
-func (m *ReqPeers) String() string {
-	bz, err := json.Marshal(m)
-	if err != nil {
-		return err.Error()
-	}
-	return string(bz)
+func (m *ReqPeers) Hash() []byte {
+	return types.CalMsgHash(m)
 }
 
 type AckPeers struct {
+	SimMsgBodyFuncs
 	Addrs []*net.TCPAddr `json:"addrs"`
 }
+
+var _ types.MsgBody = (*AckPeers)(nil)
 
 func NewAckPeers() *AckPeers {
 	return &AckPeers{}
 }
 
-//var _ types.Message = (*AckPeers)(nil)
-
 func (m *AckPeers) AddPeerAddr(addr *net.TCPAddr) {
 	m.Addrs = append(m.Addrs, addr)
 }
 
-func (m *AckPeers) Type() uint16 {
+func (m *AckPeers) ConstType() uint16 {
 	return ACK_PEERS
-}
-
-func (m *AckPeers) Hash() ([]byte, error) {
-	if bz, err := m.Encode(); err != nil {
-		return nil, err
-	} else {
-		h := sha256.Sum256(bz)
-		return h[:], nil
-	}
 }
 
 func (m *AckPeers) Encode() ([]byte, error) {
@@ -295,11 +285,16 @@ func (m *AckPeers) String() string {
 	return string(bz)
 }
 
+func (m *AckPeers) Hash() []byte {
+	return types.CalMsgHash(m)
+}
+
 type BytesMsg struct {
+	SimMsgBodyFuncs
 	Data []byte `json:"data"`
 }
 
-//var _ types.Message = (*BytesMsg)(nil)
+var _ types.MsgBody = (*BytesMsg)(nil)
 
 func NewBytesMsg(data []byte) *BytesMsg {
 	return &BytesMsg{
@@ -311,17 +306,8 @@ func (m *BytesMsg) SetData(body []byte) {
 	m.Data = body
 }
 
-func (m *BytesMsg) Type() uint16 {
+func (m *BytesMsg) ConstType() uint16 {
 	return USER_MSG_TYPE
-}
-
-func (m *BytesMsg) Hash() ([]byte, error) {
-	if bz, err := m.Encode(); err != nil {
-		return nil, err
-	} else {
-		h := sha256.Sum256(bz)
-		return h[:], nil
-	}
 }
 
 func (m *BytesMsg) Encode() ([]byte, error) {
@@ -376,6 +362,10 @@ func (m *BytesMsg) String() string {
 		return err.Error()
 	}
 	return string(bz)
+}
+
+func (m *BytesMsg) Hash() []byte {
+	return types.CalMsgHash(m)
 }
 
 const EncodedTCPAddrSize = 6

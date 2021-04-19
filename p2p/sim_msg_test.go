@@ -26,7 +26,7 @@ func TestSimMsgCodec(t *testing.T) {
 	log.Println(m1)
 	log.Println(m2)
 
-	m2.DstPeerID[0] = 7
+	m2.Header.DstPeerID[0] = 7
 	require.NotEqual(t, m1, m2)
 
 	ackPeers := NewAckPeers()

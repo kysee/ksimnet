@@ -125,7 +125,7 @@ func (seed *SimSeedPeer) OnRecv(conn types.NetConn, pack []byte, i int) (int, er
 		}
 	}
 	ackPeersMsg := NewAnonySimMsg(ackPeersBody)
-	ackPeersMsg.SetSrc(seed.id)
+	ackPeersMsg.Header.SetSrc(seed.id)
 	if pack, err := ackPeersMsg.Encode(); err != nil {
 		return 0, err
 	} else {
