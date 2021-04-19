@@ -101,6 +101,10 @@ func (sm *SimMsg) Decode(buf []byte) error {
 	return nil
 }
 
+func (sm *SimMsg) Hash() ([]byte, error) {
+	return sm.Body.Hash()
+}
+
 func (sm *SimMsg) String() string {
 	bz, err := json.Marshal(sm)
 	if err != nil {

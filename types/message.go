@@ -9,17 +9,6 @@ import (
 const MsgIDSize = 16 //sha256.Size
 const MsgTypeSize = 2
 
-type Message interface {
-	ID() MsgID
-	Type() uint16
-	Src() PeerID
-	Dst() PeerID
-
-	Encode() ([]byte, error)
-	Decode([]byte) error
-	String() string
-}
-
 type MessageHeader interface {
 	ID() MsgID
 	Type() uint16
@@ -34,6 +23,12 @@ type MessageBody interface {
 	String() string
 	Hash() ([]byte, error)
 }
+type Message interface {
+	MessageHeader
+	MessageBody
+}
+
+type MsgID [MsgIDSize]byte
 
 func NewMsgID(d []byte) MsgID {
 	h := sha256.Sum256(d)
@@ -42,8 +37,6 @@ func NewMsgID(d []byte) MsgID {
 	copy(mid[:], h[:MsgIDSize])
 	return mid
 }
-
-type MsgID [MsgIDSize]byte
 
 func (mid MsgID) String() string {
 	return hex.EncodeToString(mid[:])
