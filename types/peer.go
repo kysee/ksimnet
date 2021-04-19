@@ -1,6 +1,7 @@
 package types
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -51,7 +52,7 @@ func NewZeroPeerID() PeerID {
 }
 
 func (pid PeerID) Equal(o PeerID) bool {
-	return pid.Equal(o)
+	return bytes.Equal(pid[:], o[:])
 }
 
 func (pid PeerID) String() string {
