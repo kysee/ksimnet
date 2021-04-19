@@ -356,6 +356,7 @@ Loop:
 
 func broadcastRoutine(me *SimPeer) {
 Loop:
+
 	for {
 		select {
 		case brdPack := <-me.broadcastCh:
