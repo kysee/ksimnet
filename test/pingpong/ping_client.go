@@ -24,11 +24,12 @@ func (c *PingClientApp) HostIP() net.IP {
 	return c.hostIp
 }
 
-func (c *PingClientApp) OnConnect(conn types.NetConn) {
+func (c *PingClientApp) OnConnect(conn types.NetConn) error {
 	c.conn = conn
+	return nil
 }
 
-func (c *PingClientApp) OnRecv(conn types.NetConn, d []byte, l int) (int, error) {
+func (c *PingClientApp) OnRecv(conn types.NetConn, d []byte, l int) error {
 	//log.Printf("Client %s received '%s' from %s\n", conn.LocalAddr(), string(d), conn.RemoteAddr())
 
 	c.recvBuf[c.recvSeq] = string(d)
@@ -37,10 +38,11 @@ func (c *PingClientApp) OnRecv(conn types.NetConn, d []byte, l int) (int, error)
 	if c.recvSeq == testMsgCnt {
 		WaitGrp.Done()
 	}
-	return l, nil
+	return nil
 }
 
-func (c *PingClientApp) OnClose(conn types.NetConn) {
+func (c *PingClientApp) OnClose(conn types.NetConn) error {
 	//log.Printf("Client [%s] is closed\n", conn.Key())
 	WaitGrp.Done()
+	return nil
 }

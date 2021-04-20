@@ -6,10 +6,18 @@ import (
 	"github.com/kysee/ksimnet/simnet"
 	"github.com/kysee/ksimnet/types"
 	"log"
+	"math/rand"
 	"net"
 	"sync"
 	"time"
 )
+
+type UpperPeer interface {
+	OnAccepted(types.NetConn) error
+	OnConnected(types.NetConn) error
+	OnReceived(types.NetConn, []byte) error
+	OnClosed(types.NetConn) error
+}
 
 type SimPeer struct {
 	mtx sync.RWMutex
@@ -27,10 +35,12 @@ type SimPeer struct {
 	broadcastCh chan []byte
 	//recvBufs map[uint64][]byte
 	handledMsgIDs map[types.MsgID]interface{}
+	rxCnt         int
+	txCnt         int
 
 	seedAddr *net.TCPAddr
 
-	upperPeer types.Peer
+	upperPeer UpperPeer
 }
 
 var _ types.Peer = (*SimPeer)(nil)
@@ -56,6 +66,12 @@ func NewSimPeer(hostIP net.IP, minOthers, maxOthers int, seedAddr *net.TCPAddr) 
 	return peer
 }
 
+func (peer *SimPeer) SetUpperPeer(upper UpperPeer) {
+	peer.mtx.Lock()
+	defer peer.mtx.Unlock()
+
+	peer.upperPeer = upper
+}
 func (peer *SimPeer) SetSeed(addr *net.TCPAddr) {
 	peer.mtx.Lock()
 	defer peer.mtx.Unlock()
@@ -63,11 +79,11 @@ func (peer *SimPeer) SetSeed(addr *net.TCPAddr) {
 	peer.seedAddr = addr
 }
 
-func (peer *SimPeer) SetUpperPeer(upper types.Peer) {
-	peer.mtx.Lock()
-	defer peer.mtx.Unlock()
+func (peer *SimPeer) GetSeedAddr() *net.TCPAddr {
+	peer.mtx.RLock()
+	defer peer.mtx.RUnlock()
 
-	peer.upperPeer = upper
+	return peer.seedAddr
 }
 
 func (peer *SimPeer) IsMsgHandled(msgId types.MsgID) bool {
@@ -78,6 +94,30 @@ func (peer *SimPeer) IsMsgHandled(msgId types.MsgID) bool {
 	return ok
 }
 
+func (peer *SimPeer) RxCnt() int {
+	peer.mtx.RLock()
+	defer peer.mtx.RUnlock()
+
+	return peer.rxCnt
+	//ret := 0
+	//for _, p := range peer.others {
+	//	ret += p.(*simnet.NetPoint).RxCnt()
+	//}
+	//return ret
+}
+
+func (peer *SimPeer) TxCnt() int {
+	peer.mtx.RLock()
+	defer peer.mtx.RUnlock()
+
+	return peer.txCnt
+	//ret := 0
+	//for _, p := range peer.others {
+	//	ret += p.(*simnet.NetPoint).TxCnt()
+	//}
+	//return ret
+}
+
 func (peer *SimPeer) Start(listenPort int) error {
 	// start listening
 	peer.listener = simnet.NewListener(peer)
@@ -85,10 +125,8 @@ func (peer *SimPeer) Start(listenPort int) error {
 		return err
 	}
 
-	copy(peer.id[:], peer.hostIP.String())
-
 	go pexRoutine(peer)
-	go discoverPeersRoutine(peer)
+	go connectPeerRoutine(peer)
 	go broadcastRoutine(peer)
 
 	return nil
@@ -106,8 +144,10 @@ func (peer *SimPeer) Send(mb types.MsgBody) (int, error) {
 }
 
 func (peer *SimPeer) SendTo(toId types.PeerID, mb types.MsgBody) (int, error) {
-	peer.mtx.RLock()
-	defer peer.mtx.RUnlock()
+	peer.mtx.Lock()
+	defer peer.mtx.Unlock()
+
+	peer.txCnt++
 
 	m := NewSimMsg(peer.id, toId, mb)
 
@@ -122,6 +162,11 @@ func (peer *SimPeer) SendTo(toId types.PeerID, mb types.MsgBody) (int, error) {
 }
 
 func (peer *SimPeer) Stop() {
+	peer.mtx.RLock()
+	defer peer.mtx.RUnlock()
+
+	peer.listener.Shutdown()
+
 	close(peer.stopCh)
 }
 
@@ -183,11 +228,10 @@ func (peer *SimPeer) HandledMsgCnt() int {
 	return len(peer.handledMsgIDs)
 }
 
-func (peer *SimPeer) OnConnect(conn types.NetConn) {
+func (peer *SimPeer) OnConnect(conn types.NetConn) error {
 	peerId := types.NewPeerID(conn.RemoteIP())
 
 	peer.mtx.Lock()
-	defer peer.mtx.Unlock()
 
 	if _, ok := peer.others[peerId]; !ok {
 		peer.others[peerId] = conn
@@ -195,42 +239,55 @@ func (peer *SimPeer) OnConnect(conn types.NetConn) {
 	}
 
 	if peer.upperPeer != nil {
-		peer.upperPeer.OnConnect(conn)
+		peer.mtx.Unlock()
+		return peer.upperPeer.OnConnected(conn)
 	}
+	peer.mtx.Unlock()
+	return nil
 }
 
 func (peer *SimPeer) OnAccept(conn types.NetConn) error {
 	peerId := types.NewPeerID(conn.RemoteIP())
 
 	peer.mtx.Lock()
-	defer peer.mtx.Unlock()
+
+	if len(peer.others) >= peer.maxOthers {
+		peer.mtx.Unlock()
+		return errors.New(fmt.Sprintf("the peer(%s) has too many peers(%d)", peer.HostIP(), peer.PeerCnt()))
+	}
 
 	if _, ok := peer.others[peerId]; ok {
+		peer.mtx.Unlock()
 		return errors.New(fmt.Sprintf("the peer(%s) is already connected", conn.RemoteIP()))
 	}
 	peer.others[peerId] = conn
 	//log.Printf("OnAccept(%s), peer count: %d\n", conn.Key(), len(peer.others))
 
 	if peer.upperPeer != nil {
-		return peer.upperPeer.OnAccept(conn)
+		peer.mtx.Unlock()
+		return peer.upperPeer.OnAccepted(conn)
 	}
+
+	peer.mtx.Unlock()
 	return nil
 }
 
-func (peer *SimPeer) OnRecv(conn types.NetConn, pack []byte, sz int) (int, error) {
-	peer.mtx.Lock()
-	defer peer.mtx.Unlock()
-
+func (peer *SimPeer) OnRecv(conn types.NetConn, pack []byte, sz int) error {
 	//log.Printf("[SimPeer::OnReceive] Peer(%s) receives a pack\n", peer.hostIP)
 	header := SimMsgHeader{}
 	if err := header.Decode(pack); err != nil {
-		return 0, err
+		return err
 	}
 
+	peer.mtx.Lock()
+
+	peer.rxCnt++
+
 	// Has this msg been already received ?
-	if _, ok := peer.handledMsgIDs[header.MsgID]; ok {
+	if _, ok := peer.handledMsgIDs[header.MsgID]; ok && header.Dst() == types.NewZeroPeerID() {
+		peer.mtx.Unlock()
 		//log.Printf("this message(%x) is already handled\n", header.MsgID)
-		return 0, fmt.Errorf("peer(%s) handled the message(%d,%s) already", peer.hostIP, header.MsgType, &header.MsgID)
+		return fmt.Errorf("peer(%s) handled the message(%d,%s) already", peer.hostIP, header.MsgType, &header.MsgID)
 	}
 
 	if header.MsgType == ACK_PEERS {
@@ -245,7 +302,8 @@ func (peer *SimPeer) OnRecv(conn types.NetConn, pack []byte, sz int) (int, error
 				}
 			}
 		}
-		return sz, nil
+		peer.mtx.Unlock()
+		return nil
 	} else if header.Dst() == types.NewZeroPeerID() {
 		// broadcast...
 		peer.handledMsgIDs[header.MsgID] = struct{}{}
@@ -254,14 +312,15 @@ func (peer *SimPeer) OnRecv(conn types.NetConn, pack []byte, sz int) (int, error
 	}
 
 	if peer.upperPeer != nil {
-		return peer.upperPeer.OnRecv(conn, pack, sz)
+		peer.mtx.Unlock()
+		return peer.upperPeer.OnReceived(conn, pack)
 	}
-	return 0, nil
+	peer.mtx.Unlock()
+	return nil
 }
 
-func (peer *SimPeer) OnClose(conn types.NetConn) {
+func (peer *SimPeer) OnClose(conn types.NetConn) error {
 	peer.mtx.Lock()
-	defer peer.mtx.Unlock()
 
 	peerId := types.NewPeerID(conn.RemoteIP())
 	delete(peer.others, peerId)
@@ -269,13 +328,16 @@ func (peer *SimPeer) OnClose(conn types.NetConn) {
 	//log.Printf("OnClose(%s), peer count: %d\n", conn.Key(), len(peer.others))
 
 	if peer.upperPeer != nil {
-		peer.upperPeer.OnClose(conn)
+		peer.mtx.Unlock()
+		return peer.upperPeer.OnClosed(conn)
 	}
+	peer.mtx.Unlock()
+	return nil
 }
 
 func pexRoutine(me *SimPeer) {
 	c := 1
-	du := time.Millisecond * 400
+	du := time.Millisecond * 1000
 	ticker := time.NewTicker(du)
 
 Loop:
@@ -283,14 +345,15 @@ Loop:
 		select {
 		case <-ticker.C:
 
-			if me.PeerCnt() >= me.maxOthers {
+			if me.PeerCnt() > me.minOthers {
 				c++
-				du += du / time.Duration(c)
+				du += du * time.Duration(c)
 				ticker.Reset(du)
+				//log.Printf("pexRoutine: Peer Count = %d\n", me.PeerCnt())
 				continue
 			} else if c > 1 {
 				c = 1
-				du = time.Millisecond * 400
+				du = time.Millisecond * 1000
 				ticker.Reset(du)
 			}
 
@@ -323,26 +386,27 @@ Loop:
 		}
 	}
 
-	log.Printf("pexRoutine of peer(%s) is over.\n", me.hostIP)
+	//log.Printf("pexRoutine of peer(%s) is over.\n", me.hostIP)
 }
 
-func discoverPeersRoutine(me *SimPeer) {
+func connectPeerRoutine(me *SimPeer) {
 	c := 1
-	du := time.Second
+	du := time.Millisecond * 1200
 	ticker := time.NewTicker(du)
 
 Loop:
 	for {
 		select {
 		case <-ticker.C:
-			if me.PeerCnt() >= me.maxOthers {
+			if me.PeerCnt() > me.minOthers {
 				c++
-				du += du / time.Duration(c)
+				du += du * time.Duration(c)
 				ticker.Reset(du)
+				//log.Printf("connectPeerRoutine: Peer:%s has %d peers\n", me.HostIP(), me.PeerCnt())
 				continue
 			} else if c > 1 {
 				c = 1
-				du = time.Second
+				du = time.Millisecond * 1200
 				ticker.Reset(du)
 			}
 
@@ -351,30 +415,51 @@ Loop:
 			me.mtx.RUnlock()
 
 			//log.Printf("The peer(%s) has %d others\n", me.hostIP, me.PeerCnt())
-			if len(addrs) > 0 {
 
-				for _, toAddr := range addrs {
+			tryCnt := 0
+			for tryCnt < len(addrs) {
+				r := rand.Intn(len(addrs))
+				toAddr := addrs[r]
+				toPeerID := types.NewPeerID(toAddr.IP)
 
-					peerId := types.NewPeerID(toAddr.IP)
-
-					if !me.HasPeer(peerId) && !toAddr.IP.Equal(me.HostIP()) {
-						np := simnet.NewNetPoint(me, 0 /*bind unused port*/, true)
-						if err := np.Connect(toAddr.String()); err != nil {
-							//log.Printf("The local peer(%s) can not connect to the peer(%v): %s\n",
-							//	me.HostIP(), toAddr, err)
-						} else if me.PeerCnt() >= me.maxOthers {
-							break
-						}
+				if !me.HasPeer(toPeerID) && !toAddr.IP.Equal(me.HostIP()) {
+					np := simnet.NewNetPoint(types.NetWorker(me), 0 /*bind unused port*/, true)
+					if err := np.Connect(toAddr.String()); err != nil {
+						//log.Printf("The local peer(%s) can not connect to the peer(%v): %s\n",
+						//	me.HostIP(), toAddr, err)
+					} else if me.PeerCnt() >= me.maxOthers {
+						//log.Printf("discoverPeersRoutine: Peer:%s has %d peers over max\n", me.HostIP(), me.PeerCnt())
+						break
 					}
 				}
+				tryCnt++
 			}
+
+			//if len(addrs) > 0 {
+			//
+			//	for _, toAddr := range addrs {
+			//
+			//		peerId := types.NewPeerID(toAddr.IP)
+			//
+			//		if !me.HasPeer(peerId) && !toAddr.IP.Equal(me.HostIP()) {
+			//			np := simnet.NewNetPoint(types.NetWorker(me), 0 /*bind unused port*/, true)
+			//			if err := np.Connect(toAddr.String()); err != nil {
+			//				//log.Printf("The local peer(%s) can not connect to the peer(%v): %s\n",
+			//				//	me.HostIP(), toAddr, err)
+			//			} else if me.PeerCnt() >= me.maxOthers {
+			//				//log.Printf("discoverPeersRoutine: Peer:%s has %d peers over max\n", me.HostIP(), me.PeerCnt())
+			//				break
+			//			}
+			//		}
+			//	}
+			//}
 
 		case <-me.stopCh:
 			break Loop
 		}
 
 	}
-	log.Printf("discoverPeersRoutine of peer(%s) is over.\n", me.hostIP)
+	//log.Printf("connectPeerRoutine of peer(%s) is over.\n", me.hostIP)
 }
 
 func broadcastRoutine(me *SimPeer) {
@@ -402,7 +487,7 @@ Loop:
 						panic("writing to peer(" + conn.Key() + ") is failed : " + err.Error())
 					}
 				} else {
-					panic("not found peer id(" + dstId.String() + ")")
+					//panic("not found peer id(" + dstId.String() + ")")
 				}
 			}
 
@@ -410,5 +495,5 @@ Loop:
 			break Loop
 		}
 	}
-	log.Printf("broadcastRoutine of peer(%s) is over.\n", me.hostIP)
+	//log.Printf("broadcastRoutine of peer(%s) is over.\n", me.hostIP)
 }

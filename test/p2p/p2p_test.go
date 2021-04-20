@@ -18,7 +18,7 @@ var MsgCnt = 1000
 func TestP2P(t *testing.T) {
 
 	log.Println("Create Peers...")
-	peers := make([]*p2p.Peer, PeerCnt)
+	peers := make([]*p2p.TPeer, PeerCnt)
 	for i := 0; i < PeerCnt; i++ {
 		peers[i] = p2p.NewPeer(net.IPv4(byte(1), byte(1), byte(1), byte(i+1)))
 	}

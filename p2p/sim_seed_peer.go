@@ -49,7 +49,6 @@ func (seed *SimSeedPeer) Start(listenPort int) error {
 		return err
 	}
 
-	copy(seed.id[:], seed.hostIP.String())
 	return nil
 }
 
@@ -62,7 +61,7 @@ func (seed *SimSeedPeer) SendTo(toId types.PeerID, mb types.MsgBody) (int, error
 }
 
 func (seed *SimSeedPeer) Stop() {
-	panic("implement me")
+	seed.listener.Shutdown()
 }
 
 func (seed *SimSeedPeer) PeerCnt() int {
@@ -70,10 +69,6 @@ func (seed *SimSeedPeer) PeerCnt() int {
 }
 
 func (seed *SimSeedPeer) HasPeer(id types.PeerID) bool {
-	panic("implement me")
-}
-
-func (seed *SimSeedPeer) OnConnect(conn types.NetConn) {
 	panic("implement me")
 }
 
@@ -91,7 +86,12 @@ func (seed *SimSeedPeer) HostAddr() *net.TCPAddr {
 	return seed.listener.ListenAddr()
 }
 
-func (seed *SimSeedPeer) OnRecv(conn types.NetConn, pack []byte, i int) (int, error) {
+func (seed *SimSeedPeer) OnConnect(conn types.NetConn) error {
+	panic("implement me")
+	return nil
+}
+
+func (seed *SimSeedPeer) OnRecv(conn types.NetConn, pack []byte, i int) error {
 	seed.mtx.Lock()
 	defer func() {
 		seed.mtx.Unlock()
@@ -102,15 +102,15 @@ func (seed *SimSeedPeer) OnRecv(conn types.NetConn, pack []byte, i int) (int, er
 
 	header := &SimMsgHeader{}
 	if err := header.Decode(pack); err != nil {
-		return 0, err
+		return err
 	}
 	if header.MsgType != REQ_PEERS {
-		return 0, errors.New("this message type is not REQ_PEERS")
+		return errors.New("this message type is not REQ_PEERS")
 	}
 
 	reqPeers := &ReqPeers{}
 	if err := reqPeers.Decode(pack[HeaderSize:]); err != nil {
-		return 0, err
+		return err
 	}
 
 	alreadyAdded := false
@@ -127,7 +127,7 @@ func (seed *SimSeedPeer) OnRecv(conn types.NetConn, pack []byte, i int) (int, er
 	ackPeersMsg := NewAnonySimMsg(ackPeersBody)
 	ackPeersMsg.Header.SetSrc(seed.id)
 	if pack, err := ackPeersMsg.Encode(); err != nil {
-		return 0, err
+		return err
 	} else {
 		conn.Write(pack)
 		//log.Printf("%d addresses are sent to the peer(%s)\n", len(ackPeersBody.Addrs), conn.Key())
@@ -138,11 +138,11 @@ func (seed *SimSeedPeer) OnRecv(conn types.NetConn, pack []byte, i int) (int, er
 		//log.Printf("Add address(%s) to AddrBook, address count: %d\n", reqPeers.ExportAddr.String(), len(seed.addrBook.addrs))
 	}
 
-	return 0, nil
+	return nil
 }
 
-func (seed *SimSeedPeer) OnClose(conn types.NetConn) {
-
+func (seed *SimSeedPeer) OnClose(conn types.NetConn) error {
+	return nil
 }
 
 func (seed *SimSeedPeer) OnAccept(conn types.NetConn) error {

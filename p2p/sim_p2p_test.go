@@ -89,7 +89,7 @@ func TestSimP2P(t *testing.T) {
 		for k := range msgIDs {
 			_, ok := _msgIDs[k]
 			require.True(t, ok)
-			log.Printf("Peer(%s) had handled the message(%s)\n", p.HostIP(), &k)
+			log.Printf("TPeer(%s) had handled the message(%s)\n", p.HostIP(), &k)
 		}
 	}
 }

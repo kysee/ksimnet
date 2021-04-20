@@ -13,8 +13,14 @@ var listeners map[string]*Listener
 var sessions map[string]*Session
 
 func init() {
+	Reset()
+}
+
+func Reset() {
 	listeners = make(map[string]*Listener)
 	sessions = make(map[string]*Session)
+
+	ResetIPPorts()
 }
 
 func AddListener(s *Listener) error {
@@ -77,6 +83,7 @@ func BuildSession(client *NetPoint, to string) (*Session, error) {
 	err := <-sess.RemoteRetCh
 
 	if err != nil {
+		client.close()
 		return nil, err
 	}
 

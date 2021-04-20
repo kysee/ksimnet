@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/kysee/ksimnet/types"
 	"log"
-	"math/rand"
 	"net"
 	"sync"
 )
@@ -24,13 +23,15 @@ type NetPoint struct {
 	rxSeqFront int
 	rxSeqEnd   int
 	rxCh       chan int
+	rxCnt      int
+	txCnt      int
 
 	//txMtx sync.RWMutex
 	//txBuf map[int][]byte
 	//txSeqFirst int
 	//txSeqLast int
 
-	done chan struct{}
+	done chan interface{}
 
 	asyncMode bool
 }
@@ -47,9 +48,9 @@ func NewNetPoint(worker types.NetWorker, hostPort int, asyncMode bool) *NetPoint
 		rxBuf:      make(map[int][]byte),
 		rxSeqFront: 0,
 		rxSeqEnd:   0,
-		rxCh:       make(chan int, 1024),
+		rxCh:       make(chan int, 4084),
 		//txBuf: make(map[int][]byte),
-		done:      make(chan struct{}),
+		done:      make(chan interface{}),
 		asyncMode: asyncMode,
 	}
 
@@ -60,15 +61,25 @@ func NewNetPoint(worker types.NetWorker, hostPort int, asyncMode bool) *NetPoint
 	return ret
 }
 
+var gMtx sync.Mutex
+var goroutineNum = 0
+
 func receiveRoutine(nc *NetPoint) {
+	gMtx.Lock()
+	goroutineNum++
+	//log.Printf("the number of receiveRoutine is %d\n", goroutineNum)
+	gMtx.Unlock()
+
 Loop:
 	for {
 		select {
 		case <-nc.rxCh:
+			nc.AddRxCnt()
+
 			//fmt.Println("[",nc.LocalAddr().String(),"] receiveRoutine notified:", seq, "front:", nc.rxSeqFront, "end:", nc.rxSeqEnd, "ch length:", len(nc.rxCh))
 
 			if d := nc.pickRX(); d != nil {
-				if _, err := nc.Worker().OnRecv(nc, d, len(d)); err != nil {
+				if err := nc.Worker().OnRecv(nc, d, len(d)); err != nil {
 					//log.Printf("[receiveRoutine] %v\n", err)
 				}
 
@@ -78,7 +89,54 @@ Loop:
 		}
 	}
 
-	fmt.Println("[", nc.LocalAddr().String(), "] Goodbye...")
+	gMtx.Lock()
+	goroutineNum--
+	//log.Printf("[%s] Goodbye... the number of receiveRoutine = %d", nc.Key(), goroutineNum)
+	gMtx.Unlock()
+}
+
+func (np *NetPoint) AddRxCnt() {
+	np.mtx.Lock()
+	defer np.mtx.Unlock()
+
+	np.rxCnt++
+}
+
+func (np *NetPoint) RxCnt() int {
+	np.mtx.RLock()
+	defer np.mtx.RUnlock()
+
+	return np.rxCnt
+}
+
+func (np *NetPoint) AddTxCnt() {
+	np.mtx.Lock()
+	defer np.mtx.Unlock()
+
+	np.txCnt++
+}
+
+func (np *NetPoint) TxCnt() int {
+	np.mtx.RLock()
+	defer np.mtx.RUnlock()
+
+	return np.txCnt
+}
+
+func (np *NetPoint) Close() {
+	go func() {
+		np.close()
+		np.remotePoint.close()
+
+		np.worker.OnClose(np)
+		np.remotePoint.worker.OnClose(np.remotePoint)
+	}()
+
+	RemoveSession(np.session)
+}
+
+func (np *NetPoint) close() {
+	np.done <- struct{}{}
 }
 
 func (np *NetPoint) Worker() types.NetWorker {
@@ -133,30 +191,30 @@ func (np *NetPoint) putRX(d []byte) (int, error) {
 	return n, nil
 }
 
-func (np *NetPoint) getRX(d []byte) int {
-	np.rxMtx.Lock()
-	defer np.rxMtx.Unlock()
-
-	copied := 0
-	size := cap(d)
-
-	for copied < size {
-		p, ok := np.rxBuf[np.rxSeqFront]
-		if !ok {
-			break
-		} else if size < len(p) {
-			copy(d[copied:], p[:size])
-			copied = copied + size
-			np.rxBuf[np.rxSeqFront] = p[size:]
-		} else {
-			copy(d[copied:], p)
-			copied = copied + len(p)
-			np.rxBuf[np.rxSeqFront] = nil
-			np.rxSeqFront++
-		}
-	}
-	return copied
-}
+//func (np *NetPoint) getRX(d []byte) int {
+//	np.rxMtx.Lock()
+//	defer np.rxMtx.Unlock()
+//
+//	copied := 0
+//	size := cap(d)
+//
+//	for copied < size {
+//		p, ok := np.rxBuf[np.rxSeqFront]
+//		if !ok {
+//			break
+//		} else if size < len(p) {
+//			copy(d[copied:], p[:size])
+//			copied = copied + size
+//			np.rxBuf[np.rxSeqFront] = p[size:]
+//		} else {
+//			copy(d[copied:], p)
+//			copied = copied + len(p)
+//			np.rxBuf[np.rxSeqFront] = nil
+//			np.rxSeqFront++
+//		}
+//	}
+//	return copied
+//}
 
 func (np *NetPoint) pickRX() []byte {
 	np.rxMtx.Lock()
@@ -231,6 +289,8 @@ func (np *NetPoint) Write(d []byte) (int, error) {
 	remotePoint := np.RemotePoint()
 	ret, err := remotePoint.putRX(d)
 
+	np.AddTxCnt()
+
 	//if err == nil {
 	//	rb := make([]byte, ret)
 	//	go func() {
@@ -243,20 +303,12 @@ func (np *NetPoint) Write(d []byte) (int, error) {
 }
 
 func (np *NetPoint) Read(d []byte) (int, error) {
-	if d == nil || len(d) == 0 {
-		return 0, errors.New("invalid buffer")
-	}
-
-	return np.getRX(d), nil
-}
-
-func (np *NetPoint) Close() {
-	RemoveSession(np.session)
-
-	np.worker.OnClose(np)
-	go func(npo *NetPoint) {
-		npo.worker.OnClose(npo)
-	}(np.remotePoint)
+	//if d == nil || len(d) == 0 {
+	//	return 0, errors.New("invalid buffer")
+	//}
+	//
+	//return np.getRX(d), nil
+	return 0, nil
 }
 
 func (np *NetPoint) LocalAddr() *net.TCPAddr {
@@ -306,6 +358,12 @@ func (np *NetPoint) RemotePort() int {
 
 var addrMtx sync.Mutex
 var ipv4s []net.IP
+var ports map[string]int
+
+func ResetIPPorts() {
+	ipv4s = nil
+	ports = make(map[string]int)
+}
 
 func IsUsedIp4(ip net.IP) bool {
 	addrMtx.Lock()
@@ -321,10 +379,10 @@ func IsUsedIp4(ip net.IP) bool {
 
 func PickIP() net.IP {
 	for i := 0; i < 256*256*256*256; i++ {
-		a := byte(rand.Intn(255) + 1)
-		b := byte(rand.Intn(256))
-		c := byte(rand.Intn(256))
-		d := byte(rand.Intn(255) + 1)
+		a := byte(1)     //byte(rand.Intn(255) + 1)
+		b := byte(0)     //byte(rand.Intn(256))
+		c := byte(0)     //byte(rand.Intn(256))
+		d := byte(i + 1) //byte(rand.Intn(255) + 1)
 
 		ret := net.IPv4(a, b, c, d)
 		if !IsUsedIp4(ret) {
@@ -337,8 +395,6 @@ func PickIP() net.IP {
 	}
 	return nil
 }
-
-var ports map[string]int = make(map[string]int)
 
 func PickPort(hostIp net.IP) int {
 	addrMtx.Lock()
@@ -366,6 +422,9 @@ func (np *NetPoint) Connect(toAddr string) error {
 		return err
 	}
 
-	np.worker.(types.ClientWorker).OnConnect(np)
+	if err := np.worker.(types.ClientWorker).OnConnect(np); err != nil {
+		np.Close()
+		return err
+	}
 	return nil
 }

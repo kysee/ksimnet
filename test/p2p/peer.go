@@ -23,7 +23,7 @@ type BroadcastPack struct {
 	pack []byte
 }
 
-type Peer struct {
+type TPeer struct {
 	mtx sync.RWMutex
 
 	hostIP   net.IP
@@ -36,8 +36,8 @@ type Peer struct {
 	stopCh      chan interface{}
 }
 
-func NewPeer(hostIp net.IP) *Peer {
-	peer := &Peer{
+func NewPeer(hostIp net.IP) *TPeer {
+	peer := &TPeer{
 		hostIP:      hostIp,
 		others:      make(map[string]types.NetConn),
 		recvMsgs:    make(map[uint64][]byte),
@@ -47,7 +47,7 @@ func NewPeer(hostIp net.IP) *Peer {
 	return peer
 }
 
-func (peer *Peer) Start(port int) {
+func (peer *TPeer) Start(port int) {
 	peer.listener = simnet.NewListener(peer)
 	if err := peer.listener.Listen(port); err != nil {
 		panic(err)
@@ -61,54 +61,54 @@ func (peer *Peer) Start(port int) {
 	go peer.broadcastRoutine()
 }
 
-func (peer *Peer) addPeerConn(conn types.NetConn) {
+func (peer *TPeer) addPeerConn(conn types.NetConn) {
 	peer.others[conn.RemoteIP().String()] = conn
 }
 
-func (peer *Peer) delPeerConn(conn types.NetConn) {
+func (peer *TPeer) delPeerConn(conn types.NetConn) {
 	delete(peer.others, conn.RemoteIP().String())
 }
 
-func (peer *Peer) hasPeerConn(conn types.NetConn) bool {
+func (peer *TPeer) hasPeerConn(conn types.NetConn) bool {
 	return peer.hasPeer(conn.RemoteIP().String())
 }
 
-func (peer *Peer) hasPeer(ip string) bool {
+func (peer *TPeer) hasPeer(ip string) bool {
 	if _, ok := peer.others[ip]; ok {
 		return true
 	}
 	return false
 }
 
-func (peer *Peer) HasPeer(ip string) bool {
+func (peer *TPeer) HasPeer(ip string) bool {
 	peer.mtx.RLock()
 	defer peer.mtx.RUnlock()
 
 	return peer.hasPeer(ip)
 }
 
-func (peer *Peer) PeerCnt() int {
+func (peer *TPeer) PeerCnt() int {
 	peer.mtx.RLock()
 	defer peer.mtx.RUnlock()
 
 	return len(peer.others)
 }
 
-func (peer *Peer) HostIP() net.IP {
+func (peer *TPeer) HostIP() net.IP {
 	peer.mtx.RLock()
 	defer peer.mtx.RUnlock()
 
 	return peer.hostIP
 }
 
-func (peer *Peer) RecvMsgCnt() int {
+func (peer *TPeer) RecvMsgCnt() int {
 	peer.mtx.RLock()
 	defer peer.mtx.RUnlock()
 
 	return len(peer.recvMsgs)
 }
 
-func (peer *Peer) RecvMsg(k uint64) []byte {
+func (peer *TPeer) RecvMsg(k uint64) []byte {
 	peer.mtx.RLock()
 	defer peer.mtx.RUnlock()
 
@@ -118,7 +118,7 @@ func (peer *Peer) RecvMsg(k uint64) []byte {
 	return nil
 }
 
-func (peer *Peer) Broadcast(n uint64, d []byte, srcConn types.NetConn) {
+func (peer *TPeer) Broadcast(n uint64, d []byte, srcConn types.NetConn) {
 
 	// encoding a packet
 	_pack := make([]byte, 8+len(d))
@@ -134,7 +134,7 @@ func (peer *Peer) Broadcast(n uint64, d []byte, srcConn types.NetConn) {
 
 }
 
-func (peer *Peer) broadcastRoutine() {
+func (peer *TPeer) broadcastRoutine() {
 Loop:
 	for {
 		select {
@@ -160,7 +160,7 @@ Loop:
 	}
 }
 
-func (peer *Peer) connectRoutine() {
+func (peer *TPeer) connectRoutine() {
 
 	ticker := time.NewTicker(time.Millisecond * 500)
 
@@ -207,17 +207,19 @@ Loop:
 	WG.Done()
 }
 
-var _ types.ServerWorker = (*Peer)(nil)
-var _ types.ClientWorker = (*Peer)(nil)
+var _ types.ServerWorker = (*TPeer)(nil)
+var _ types.ClientWorker = (*TPeer)(nil)
 
-func (peer *Peer) OnConnect(conn types.NetConn) {
+func (peer *TPeer) OnConnect(conn types.NetConn) error {
 	//log.Printf("OnConnect - peer(%s) <> peer(%s)\n", conn.LocalAddr(), conn.RemoteAddr())
 	peer.mtx.Lock()
 	defer peer.mtx.Unlock()
 	peer.addPeerConn(conn)
+
+	return nil
 }
 
-func (peer *Peer) OnAccept(conn types.NetConn) error {
+func (peer *TPeer) OnAccept(conn types.NetConn) error {
 	peer.mtx.Lock()
 	defer peer.mtx.Unlock()
 
@@ -232,20 +234,20 @@ func (peer *Peer) OnAccept(conn types.NetConn) error {
 	return nil
 }
 
-func (peer *Peer) OnRecv(conn types.NetConn, d []byte, size int) (int, error) {
+func (peer *TPeer) OnRecv(conn types.NetConn, d []byte, size int) error {
 	bn := binary.BigEndian.Uint64(d[:8])
 
 	peer.mtx.Lock()
 	defer peer.mtx.Unlock()
 
 	if _, ok := peer.recvMsgs[bn]; ok {
-		return 0, errors.New("this msg is already received")
+		return errors.New("this msg is already received")
 	}
 
 	peer.recvMsgs[bn] = d[8:]
 
 	WG.Done()
-	//log.Printf("Peer(%s) received msg[%d] from peer(%s)\n", conn.LocalAddr(), bn, conn.RemoteAddr())
+	//log.Printf("TPeer(%s) received msg[%d] from peer(%s)\n", conn.LocalAddr(), bn, conn.RemoteAddr())
 
 	// broadcast to others
 	peer.broadcastCh <- &BroadcastPack{
@@ -253,12 +255,14 @@ func (peer *Peer) OnRecv(conn types.NetConn, d []byte, size int) (int, error) {
 		src:  conn,
 	}
 
-	return size, nil
+	return nil
 }
 
-func (peer *Peer) OnClose(conn types.NetConn) {
+func (peer *TPeer) OnClose(conn types.NetConn) error {
 	peer.mtx.Lock()
 	defer peer.mtx.Unlock()
 
 	peer.delPeerConn(conn)
+
+	return nil
 }

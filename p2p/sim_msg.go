@@ -87,14 +87,12 @@ func (sm *SimMsg) Decode(buf []byte) error {
 			return err
 		}
 		sm.Body = m
-	case USER_MSG_TYPE:
+	default:
 		m := &BytesMsg{}
 		if err := m.Decode(buf[HeaderSize:]); err != nil {
 			return err
 		}
 		sm.Body = m
-	default:
-		panic("unknown message type")
 	}
 	return nil
 }

@@ -100,12 +100,15 @@ func (lsn *Listener) accept(sess *Session) error {
 	// See the comments in simnet.go for the reason.
 	c1.(*NetPoint).SetRemotePoint(c2)
 
-	err := lsn.worker.OnAccept(c2)
-	if err == nil {
-		lsn.AddNetConn(c2)
+	if err := lsn.worker.OnAccept(c2); err != nil {
+		c2.close()
+		return err
 	}
+
+	lsn.AddNetConn(c2)
 	sess.listener = lsn
-	return err
+
+	return nil
 }
 
 func (lsn *Listener) AddNetConn(c types.NetConn) {

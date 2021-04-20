@@ -57,7 +57,7 @@ func (s *PongServerApp) OnAccept(conn types.NetConn) error {
 	return nil
 }
 
-func (s *PongServerApp) OnRecv(conn types.NetConn, d []byte, l int) (int, error) {
+func (s *PongServerApp) OnRecv(conn types.NetConn, d []byte, l int) error {
 	//log.Printf("Listener %s received '%s' from %s\n", conn.LocalAddr(), string(d), conn.RemoteAddr())
 
 	s.recvBufMtx.Lock()
@@ -83,10 +83,10 @@ func (s *PongServerApp) OnRecv(conn types.NetConn, d []byte, l int) (int, error)
 	s.sendBuf[conn.RemoteAddr().String()] = serverSend
 	s.sendBufMtx.Unlock()
 
-	return l, nil
+	return nil
 }
 
-func (s *PongServerApp) OnClose(conn types.NetConn) {
+func (s *PongServerApp) OnClose(conn types.NetConn) error {
 	//log.Printf("Server [%s] is closed\n", conn.Key())
 	k := conn.Key()
 	for i, c := range s.clients {
@@ -96,4 +96,5 @@ func (s *PongServerApp) OnClose(conn types.NetConn) {
 		}
 	}
 	WaitGrp.Done()
+	return nil
 }

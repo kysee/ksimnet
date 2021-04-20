@@ -4,12 +4,12 @@ import "net"
 
 type NetWorker interface {
 	HostIP() net.IP
-	OnRecv(NetConn, []byte, int) (int, error)
-	OnClose(NetConn)
+	OnRecv(NetConn, []byte, int) error
+	OnClose(NetConn) error
 }
 
 type ClientWorker interface {
-	OnConnect(NetConn)
+	OnConnect(NetConn) error
 	NetWorker
 }
 
