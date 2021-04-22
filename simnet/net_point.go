@@ -187,6 +187,9 @@ func (np *NetPoint) putRX(d []byte) (int, error) {
 	np.rxMtx.Unlock()
 
 	np.rxCh <- seq
+	if len(np.rxCh) == cap(np.rxCh) {
+		log.Printf("[NetPoint:%s] rxCh=%d/%d\n", np.LocalIP(), len(np.rxCh), cap(np.rxCh))
+	}
 
 	return n, nil
 }
@@ -290,14 +293,6 @@ func (np *NetPoint) Write(d []byte) (int, error) {
 	ret, err := remotePoint.putRX(d)
 
 	np.AddTxCnt()
-
-	//if err == nil {
-	//	rb := make([]byte, ret)
-	//	go func() {
-	//		rlen := remotePoint.getRX(rb)
-	//		remotePoint.Worker().OnRecv(remotePoint, rb, rlen)
-	//	}()
-	//}
 
 	return ret, err
 }

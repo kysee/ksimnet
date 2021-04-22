@@ -14,7 +14,7 @@ import (
 var PeerCnt = 10
 var MinPeerCnt = 6
 var MaxPeerCnt = 9
-var MsgCnt = 10
+var MsgCnt = 100000
 
 func TestSimP2P(t *testing.T) {
 
@@ -46,7 +46,7 @@ func TestSimP2P(t *testing.T) {
 		}
 
 		log.Printf("Total others number is %d\n", totalOthers)
-		if totalOthers == PeerCnt*(PeerCnt-1) {
+		if totalOthers >= PeerCnt*MinPeerCnt {
 			break
 		}
 	}
@@ -57,11 +57,12 @@ func TestSimP2P(t *testing.T) {
 		j := rand.Intn(PeerCnt)
 		_, err := peers[j].Send(p2p.NewBytesMsg([]byte("Message Number is " + strconv.Itoa(i))))
 		require.NoError(t, err)
-
-		rn := time.Duration(rand.Intn(100) + 1)
-		time.Sleep(time.Millisecond * rn)
+		//if i%1000 == 0 {
+		//	log.Printf("send %dth msg\n", i)
+		//}
 	}
 
+	log.Println("Wait...")
 	for {
 		time.Sleep(time.Second * 3)
 		totalMsgCnt := 0
@@ -76,6 +77,7 @@ func TestSimP2P(t *testing.T) {
 		}
 	}
 
+	log.Println("Stop peers...")
 	for _, p := range peers {
 		p.Stop()
 	}
@@ -83,13 +85,15 @@ func TestSimP2P(t *testing.T) {
 	log.Println("Validate messages...")
 
 	msgIDs := peers[0].HandledMsgIDs()
+	require.Equal(t, MsgCnt, len(msgIDs))
+
 	for _, p := range peers {
 		_msgIDs := p.HandledMsgIDs()
 		require.Equal(t, len(msgIDs), len(_msgIDs))
 		for k := range msgIDs {
 			_, ok := _msgIDs[k]
 			require.True(t, ok)
-			log.Printf("TPeer(%s) had handled the message(%s)\n", p.HostIP(), &k)
+			//log.Printf("TPeer(%s) had handled the message(%s)\n", p.HostIP(), &k)
 		}
 	}
 }

@@ -144,19 +144,21 @@ func (peer *SimPeer) Send(mb types.MsgBody) (int, error) {
 }
 
 func (peer *SimPeer) SendTo(toId types.PeerID, mb types.MsgBody) (int, error) {
-	peer.mtx.Lock()
-	defer peer.mtx.Unlock()
-
-	peer.txCnt++
-
 	m := NewSimMsg(peer.id, toId, mb)
-
 	pack, err := m.Encode()
 	if err != nil {
 		return 0, err
 	}
 
 	peer.broadcastCh <- pack
+
+	peer.mtx.Lock()
+	//if len(peer.broadcastCh) == cap(peer.broadcastCh) {
+	//	log.Printf("[Peer:%s::SendTo] broadcastCh=%d/%d\n", peer.hostIP, len(peer.broadcastCh), cap(peer.broadcastCh))
+	//}
+
+	peer.txCnt++
+	peer.mtx.Unlock()
 
 	return len(pack), nil
 }
@@ -307,15 +309,21 @@ func (peer *SimPeer) OnRecv(conn types.NetConn, pack []byte, sz int) error {
 	} else if header.Dst() == types.NewZeroPeerID() {
 		// broadcast...
 		peer.handledMsgIDs[header.MsgID] = struct{}{}
-		peer.broadcastCh <- pack
 		//log.Printf("Peer(%s) has handled the message(%d,%s)\n", peer.hostIP, header.MsgType, &header.MsgID)
+
+		peer.mtx.Unlock()
+
+		peer.broadcastCh <- pack
+		//if len(peer.broadcastCh) == cap(peer.broadcastCh) {
+		//	log.Printf("[Peer:%s] broadcastCh=%d/%d\n", peer.hostIP, len(peer.broadcastCh), cap(peer.broadcastCh))
+		//}
+
 	}
 
 	if peer.upperPeer != nil {
-		peer.mtx.Unlock()
 		return peer.upperPeer.OnReceived(conn, pack)
 	}
-	peer.mtx.Unlock()
+
 	return nil
 }
 
@@ -488,6 +496,7 @@ Loop:
 					}
 				} else {
 					//panic("not found peer id(" + dstId.String() + ")")
+					log.Println("not found peer id(" + dstId.String() + ")")
 				}
 			}
 
