@@ -1,5 +1,6 @@
 package p2p
 
+import "C"
 import (
 	"errors"
 	"fmt"
@@ -27,10 +28,11 @@ type SimPeer struct {
 	listener *simnet.Listener
 	stopCh   chan interface{}
 
-	others    map[types.PeerID]types.NetConn
-	minOthers int //var MinOthers = 3
-	maxOthers int //var MaxOthers = 100
-	addrBook  *AddrBook
+	halfOthers map[types.PeerID]types.NetConn
+	others     map[types.PeerID]types.NetConn
+	minOthers  int //var MinOthers = 3
+	maxOthers  int //var MaxOthers = 100
+	addrBook   *AddrBook
 
 	broadcastCh chan []byte
 	//recvBufs map[uint64][]byte
@@ -41,29 +43,39 @@ type SimPeer struct {
 	seedAddr *net.TCPAddr
 
 	upperPeer UpperPeer
+
+	dbg int
 }
 
 var _ types.Peer = (*SimPeer)(nil)
 
 func NewSimPeer(hostIP net.IP, minOthers, maxOthers int, seedAddr *net.TCPAddr) *SimPeer {
 	peer := &SimPeer{
-		id:     types.NewPeerID(hostIP),
-		hostIP: hostIP,
-		others: make(map[types.PeerID]types.NetConn),
+		id:         types.NewPeerID(hostIP),
+		hostIP:     hostIP,
+		halfOthers: make(map[types.PeerID]types.NetConn),
+		others:     make(map[types.PeerID]types.NetConn),
 
 		stopCh:    make(chan interface{}),
 		minOthers: minOthers,
 		maxOthers: maxOthers,
 		addrBook:  NewAddrBook(),
 
+		broadcastCh: make(chan []byte, maxOthers*10000),
 		//recvBufs:    make(map[uint64][]byte),
 		handledMsgIDs: make(map[types.MsgID]interface{}),
 
 		seedAddr: seedAddr,
 	}
 
-	peer.broadcastCh = make(chan []byte, peer.maxOthers*2)
 	return peer
+}
+
+func (peer *SimPeer) SetAddrBook(addrBook *AddrBook) {
+	peer.mtx.Lock()
+	defer peer.mtx.Unlock()
+
+	peer.addrBook = addrBook
 }
 
 func (peer *SimPeer) SetUpperPeer(upper UpperPeer) {
@@ -84,14 +96,6 @@ func (peer *SimPeer) GetSeedAddr() *net.TCPAddr {
 	defer peer.mtx.RUnlock()
 
 	return peer.seedAddr
-}
-
-func (peer *SimPeer) IsMsgHandled(msgId types.MsgID) bool {
-	peer.mtx.RLock()
-	defer peer.mtx.RUnlock()
-
-	_, ok := peer.handledMsgIDs[msgId]
-	return ok
 }
 
 func (peer *SimPeer) RxCnt() int {
@@ -150,15 +154,42 @@ func (peer *SimPeer) SendTo(toId types.PeerID, mb types.MsgBody) (int, error) {
 		return 0, err
 	}
 
+	//islog := false
+	//if len(peer.broadcastCh) == cap(peer.broadcastCh) {
+	//	log.Printf("[Peer:%s] SendTo %d\n", peer.HostIP(), len(peer.broadcastCh))
+	//	islog = true
+	//}
+
 	peer.broadcastCh <- pack
 
-	peer.mtx.Lock()
-	//if len(peer.broadcastCh) == cap(peer.broadcastCh) {
-	//	log.Printf("[Peer:%s::SendTo] broadcastCh=%d/%d\n", peer.hostIP, len(peer.broadcastCh), cap(peer.broadcastCh))
+	//if islog {
+	//	log.Printf("[Peer:%s] SendTo -------------- %d, tx=%d\n", peer.HostIP(), len(peer.broadcastCh), peer.TxCnt())
+	//}
+
+	peer.mtx.RLock()
+	defer peer.mtx.RUnlock()
+
+	//if toId == types.NewZeroPeerID() {
+	//	// broadcast
+	//	for _, conn := range peer.others {
+	//		//log.Printf("[Peer:%s] broadcasts a msg<%d, %v> to %s", peer.hostIP, mb.ConstType(), m.ID(), conn.RemoteIP())
+	//		if _, err := conn.Write(pack); err != nil {
+	//			panic("writing to peer(" + conn.Key() + ") is failed : " + err.Error())
+	//		}
+	//	}
+	//
+	//} else {
+	//	if conn := peer.GetPeerConn(toId); conn != nil {
+	//		//log.Printf("[Peer:%s] send a msg<%d, %v> to %s", peer.hostIP, mb.ConstType(), m.ID(), conn.RemoteIP())
+	//		if _, err := conn.Write(pack); err != nil {
+	//			panic("writing to peer(" + conn.Key() + ") is failed : " + err.Error())
+	//		}
+	//	} else {
+	//		panic("not found peer id(" + toId.String() + ")")
+	//	}
 	//}
 
 	peer.txCnt++
-	peer.mtx.Unlock()
 
 	return len(pack), nil
 }
@@ -170,6 +201,17 @@ func (peer *SimPeer) Stop() {
 	peer.listener.Shutdown()
 
 	close(peer.stopCh)
+}
+
+func (peer *SimPeer) AddPeerConn(conn types.NetConn) {
+	peer.mtx.Lock()
+	defer peer.mtx.Unlock()
+
+	peerId := types.NewPeerID(conn.RemoteIP())
+	if _, ok := peer.halfOthers[peerId]; ok {
+		delete(peer.halfOthers, peerId)
+	}
+	peer.others[peerId] = conn
 }
 
 func (peer *SimPeer) PeerCnt() int {
@@ -190,6 +232,17 @@ func (peer *SimPeer) PeerIDs() []types.PeerID {
 	return ret
 }
 
+func (peer *SimPeer) PeerConns() []types.NetConn {
+	peer.mtx.RLock()
+	defer peer.mtx.RUnlock()
+
+	var ret []types.NetConn
+	for _, v := range peer.others {
+		ret = append(ret, v)
+	}
+	return ret
+}
+
 func (peer *SimPeer) GetPeerConn(id types.PeerID) types.NetConn {
 	peer.mtx.RLock()
 	defer peer.mtx.RUnlock()
@@ -205,11 +258,34 @@ func (peer *SimPeer) HasPeer(id types.PeerID) bool {
 	return ok
 }
 
+func (peer *SimPeer) HasHalfConn(id types.PeerID) bool {
+	peer.mtx.RLock()
+	defer peer.mtx.RUnlock()
+
+	_, ok := peer.halfOthers[id]
+	return ok
+}
+
 func (peer *SimPeer) HostIP() net.IP {
 	peer.mtx.RLock()
 	defer peer.mtx.RUnlock()
 
 	return peer.hostIP
+}
+
+func (peer *SimPeer) SetHandledMsg(msgId types.MsgID) {
+	peer.mtx.Lock()
+	defer peer.mtx.Unlock()
+
+	peer.handledMsgIDs[msgId] = struct{}{}
+}
+
+func (peer *SimPeer) IsMsgHandled(msgId types.MsgID) bool {
+	peer.mtx.RLock()
+	defer peer.mtx.RUnlock()
+
+	_, ok := peer.handledMsgIDs[msgId]
+	return ok
 }
 
 func (peer *SimPeer) HandledMsgIDs() map[types.MsgID]interface{} {
@@ -235,10 +311,13 @@ func (peer *SimPeer) OnConnect(conn types.NetConn) error {
 
 	peer.mtx.Lock()
 
-	if _, ok := peer.others[peerId]; !ok {
-		peer.others[peerId] = conn
-		//log.Printf("OnConnect(%s), peer count: %d\n", conn.Key(), len(peer.others))
+	if _, ok := peer.others[peerId]; ok {
+		peer.mtx.Unlock()
+		return errors.New(fmt.Sprintf("the peer(%s) is already connected", conn.RemoteIP()))
 	}
+
+	peer.others[peerId] = conn
+	//log.Printf("OnConnect(%s), peer count: %d\n", conn.Key(), len(peer.others))
 
 	if peer.upperPeer != nil {
 		peer.mtx.Unlock()
@@ -251,43 +330,55 @@ func (peer *SimPeer) OnConnect(conn types.NetConn) error {
 func (peer *SimPeer) OnAccept(conn types.NetConn) error {
 	peerId := types.NewPeerID(conn.RemoteIP())
 
-	peer.mtx.Lock()
+	if peer.HasHalfConn(peerId) {
+		peer.AddPeerConn(conn)
+	} else {
+		if peer.PeerCnt() >= peer.maxOthers {
+			return errors.New(fmt.Sprintf("the peer(%s) has too many peers(%d)", peer.HostIP(), peer.PeerCnt()))
+		}
 
-	if len(peer.others) >= peer.maxOthers {
+		if peer.HasPeer(peerId) {
+
+			return errors.New(fmt.Sprintf("the peer(%s) is already connected", conn.RemoteIP()))
+		}
+
+		peer.mtx.Lock()
+		peer.halfOthers[peerId] = conn
+		//peer.others[peerId] = conn
+		//log.Printf("OnAccept(%s), peer count: %d\n", conn.Key(), len(peer.others))
 		peer.mtx.Unlock()
-		return errors.New(fmt.Sprintf("the peer(%s) has too many peers(%d)", peer.HostIP(), peer.PeerCnt()))
+
+		if peer.upperPeer != nil {
+			return peer.upperPeer.OnAccepted(conn)
+		}
 	}
 
-	if _, ok := peer.others[peerId]; ok {
-		peer.mtx.Unlock()
-		return errors.New(fmt.Sprintf("the peer(%s) is already connected", conn.RemoteIP()))
-	}
-	peer.others[peerId] = conn
-	//log.Printf("OnAccept(%s), peer count: %d\n", conn.Key(), len(peer.others))
-
-	if peer.upperPeer != nil {
-		peer.mtx.Unlock()
-		return peer.upperPeer.OnAccepted(conn)
-	}
-
-	peer.mtx.Unlock()
 	return nil
 }
 
 func (peer *SimPeer) OnRecv(conn types.NetConn, pack []byte, sz int) error {
 	//log.Printf("[SimPeer::OnReceive] Peer(%s) receives a pack\n", peer.hostIP)
+
 	header := SimMsgHeader{}
 	if err := header.Decode(pack); err != nil {
 		return err
 	}
+	peerId := types.NewPeerID(conn.RemoteIP())
 
 	peer.mtx.Lock()
 
 	peer.rxCnt++
 
+	if _, ok := peer.halfOthers[peerId]; ok {
+		delete(peer.halfOthers, peerId)
+		peer.others[peerId] = conn
+	}
+
+	peer.mtx.Unlock()
+
 	// Has this msg been already received ?
-	if _, ok := peer.handledMsgIDs[header.MsgID]; ok && header.Dst() == types.NewZeroPeerID() {
-		peer.mtx.Unlock()
+	if peer.IsMsgHandled(header.MsgID) && header.Dst() == types.NewZeroPeerID() {
+
 		//log.Printf("this message(%x) is already handled\n", header.MsgID)
 		return fmt.Errorf("peer(%s) handled the message(%d,%s) already", peer.hostIP, header.MsgType, &header.MsgID)
 	}
@@ -304,19 +395,30 @@ func (peer *SimPeer) OnRecv(conn types.NetConn, pack []byte, sz int) error {
 				}
 			}
 		}
-		peer.mtx.Unlock()
 		return nil
 	} else if header.Dst() == types.NewZeroPeerID() {
 		// broadcast...
-		peer.handledMsgIDs[header.MsgID] = struct{}{}
+		peer.SetHandledMsg(header.MsgID)
 		//log.Printf("Peer(%s) has handled the message(%d,%s)\n", peer.hostIP, header.MsgType, &header.MsgID)
 
-		peer.mtx.Unlock()
+		//go func(_pack []byte) {
+
+		//islog := false
+		//if len(peer.broadcastCh) == cap(peer.broadcastCh) {
+		//	log.Printf("[Peer:%s] OnRecv %d\n", peer.HostIP(), len(peer.broadcastCh))
+		//	islog = true
+		//}
 
 		peer.broadcastCh <- pack
+
+		//if islog {
+		//	log.Printf("[Peer:%s] OnRecv %d --------------- \n", peer.HostIP(), len(peer.broadcastCh))
+		//}
+
 		//if len(peer.broadcastCh) == cap(peer.broadcastCh) {
 		//	log.Printf("[Peer:%s] broadcastCh=%d/%d\n", peer.hostIP, len(peer.broadcastCh), cap(peer.broadcastCh))
 		//}
+		//}(pack)
 
 	}
 
@@ -353,7 +455,7 @@ Loop:
 		select {
 		case <-ticker.C:
 
-			if me.PeerCnt() > me.minOthers {
+			if me.PeerCnt() >= me.minOthers {
 				c++
 				du += du * time.Duration(c)
 				ticker.Reset(du)
@@ -365,10 +467,8 @@ Loop:
 				ticker.Reset(du)
 			}
 
-			me.mtx.RLock()
-			seedAddr := me.seedAddr
+			seedAddr := me.GetSeedAddr()
 			listenAddr := me.listener.ListenAddr()
-			me.mtx.RUnlock()
 
 			np := simnet.NewNetPoint(me, 0 /*bind unused port*/, true)
 			if err := np.Connect(seedAddr.String()); err == nil {
@@ -406,7 +506,7 @@ Loop:
 	for {
 		select {
 		case <-ticker.C:
-			if me.PeerCnt() > me.minOthers {
+			if me.PeerCnt() >= me.minOthers {
 				c++
 				du += du * time.Duration(c)
 				ticker.Reset(du)
@@ -418,9 +518,9 @@ Loop:
 				ticker.Reset(du)
 			}
 
-			me.mtx.RLock()
+			//me.mtx.RLock()
 			addrs := me.addrBook.Addrs()
-			me.mtx.RUnlock()
+			//me.mtx.RUnlock()
 
 			//log.Printf("The peer(%s) has %d others\n", me.hostIP, me.PeerCnt())
 
@@ -433,62 +533,58 @@ Loop:
 				if !me.HasPeer(toPeerID) && !toAddr.IP.Equal(me.HostIP()) {
 					np := simnet.NewNetPoint(types.NetWorker(me), 0 /*bind unused port*/, true)
 					if err := np.Connect(toAddr.String()); err != nil {
-						//log.Printf("The local peer(%s) can not connect to the peer(%v): %s\n",
-						//	me.HostIP(), toAddr, err)
+						log.Printf("[Peer:%s] can not connect to the peer(%v): %s\n",
+							me.HostIP(), toAddr, err)
 					} else if me.PeerCnt() >= me.maxOthers {
-						//log.Printf("discoverPeersRoutine: Peer:%s has %d peers over max\n", me.HostIP(), me.PeerCnt())
+						//log.Printf("connectPeerRoutine: Peer:%s has %d peers over max\n", me.HostIP(), me.PeerCnt())
 						break
 					}
 				}
 				tryCnt++
 			}
 
-			//if len(addrs) > 0 {
-			//
-			//	for _, toAddr := range addrs {
-			//
-			//		peerId := types.NewPeerID(toAddr.IP)
-			//
-			//		if !me.HasPeer(peerId) && !toAddr.IP.Equal(me.HostIP()) {
-			//			np := simnet.NewNetPoint(types.NetWorker(me), 0 /*bind unused port*/, true)
-			//			if err := np.Connect(toAddr.String()); err != nil {
-			//				//log.Printf("The local peer(%s) can not connect to the peer(%v): %s\n",
-			//				//	me.HostIP(), toAddr, err)
-			//			} else if me.PeerCnt() >= me.maxOthers {
-			//				//log.Printf("discoverPeersRoutine: Peer:%s has %d peers over max\n", me.HostIP(), me.PeerCnt())
-			//				break
-			//			}
-			//		}
-			//	}
-			//}
-
 		case <-me.stopCh:
 			break Loop
 		}
 
 	}
+	ticker.Stop()
 	//log.Printf("connectPeerRoutine of peer(%s) is over.\n", me.hostIP)
 }
 
 func broadcastRoutine(me *SimPeer) {
 Loop:
 	for {
+		//log.Printf("[Peer:%s] is free %d\n", me.HostIP(), len(me.broadcastCh))
+		//if len(me.broadcastCh) == cap(me.broadcastCh) {
+		//	log.Printf("[Peer:%s] broadcatstRoutine %d\n", me.HostIP(), len(me.broadcastCh))
+		//}
+
 		select {
 		case brdPack := <-me.broadcastCh:
+			me.dbg = 1
 			h := &SimMsgHeader{}
 			if err := h.Decode(brdPack); err != nil {
 				panic(err)
 			}
 
+			me.dbg++
+
 			dstId := h.Dst()
 			if dstId == types.NewZeroPeerID() {
-				me.mtx.RLock()
-				for _, conn := range me.others {
+
+				me.dbg = 100
+
+				toPeers := me.PeerConns()
+				for _, conn := range toPeers {
 					if _, err := conn.Write(brdPack); err != nil {
 						panic("writing to peer(" + conn.Key() + ") is failed : " + err.Error())
 					}
+					me.dbg++
 				}
-				me.mtx.RUnlock()
+
+				me.dbg = 0
+
 			} else {
 				if conn := me.GetPeerConn(dstId); conn != nil {
 					if _, err := conn.Write(brdPack); err != nil {
@@ -496,7 +592,18 @@ Loop:
 					}
 				} else {
 					//panic("not found peer id(" + dstId.String() + ")")
-					log.Println("not found peer id(" + dstId.String() + ")")
+					sm := &SimMsg{}
+					sm.Decode(brdPack)
+
+					log.Printf("[Peer:%s] h=%s, b=%s", me.HostIP(), h, sm)
+					log.Printf("[Peer:%s] peerId=%s", me.HostIP(), me.ID())
+
+					toPeers := me.PeerConns()
+					for _, conn := range toPeers {
+						log.Printf("[Peer:%s] others=%s,%s\n", me.HostIP(), conn.RemoteIP(), types.NewPeerID(conn.RemoteIP()))
+					}
+
+					panic(fmt.Errorf("[Peer:%s] not found peer id(%s)\n", me.HostIP(), dstId))
 				}
 			}
 

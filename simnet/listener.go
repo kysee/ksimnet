@@ -48,9 +48,9 @@ func (lsn *Listener) Listen(port int) error {
 			case sess, ok := <-lsn.listenCh:
 				if ok {
 
-					sess.RemoteRetCh <- lsn.accept(sess)
-
+					lsn.accept(sess)
 					//log.Printf("Constructed session: %v\n", sess)
+
 				} else {
 					panic("error in receiving from listenCh")
 					break Loop
@@ -88,7 +88,9 @@ func (lsn *Listener) ListenAddr() *net.TCPAddr {
 func (lsn *Listener) accept(sess *Session) error {
 	c1 := sess.GetNetConn(CLIENT)
 	if c1 == nil {
-		return errors.New("a session has no NetConn")
+		err := errors.New("a session has no NetConn")
+		sess.ReqCh <- err
+		return err
 	}
 
 	c2 := NewNetPoint(lsn.worker, lsn.listenAddr.Port, true)
@@ -101,12 +103,30 @@ func (lsn *Listener) accept(sess *Session) error {
 	c1.(*NetPoint).SetRemotePoint(c2)
 
 	if err := lsn.worker.OnAccept(c2); err != nil {
+		sess.ReqCh <- err
 		c2.close()
 		return err
 	}
 
+	sess.ReqCh <- nil
+
 	lsn.AddNetConn(c2)
 	sess.listener = lsn
+
+	<-sess.AckCh
+	lsn.worker.OnAccept(c2)
+
+	return nil
+}
+
+func (lsn *Listener) accept2(sess *Session) error {
+	c2 := sess.GetNetConn(SERVER)
+	if c2 == nil {
+		err := errors.New("a session has no NetConn")
+		return err
+	}
+
+	lsn.worker.OnAccept(c2)
 
 	return nil
 }

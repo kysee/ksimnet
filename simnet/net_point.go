@@ -2,11 +2,10 @@ package simnet
 
 import (
 	"errors"
-	"fmt"
 	"github.com/kysee/ksimnet/types"
-	"log"
 	"net"
 	"sync"
+	"time"
 )
 
 type NetPoint struct {
@@ -22,9 +21,9 @@ type NetPoint struct {
 	rxBuf      map[int][]byte
 	rxSeqFront int
 	rxSeqEnd   int
-	rxCh       chan int
-	rxCnt      int
-	txCnt      int
+	//rxCh       chan int
+	rxCnt int
+	txCnt int
 
 	//txMtx sync.RWMutex
 	//txBuf map[int][]byte
@@ -48,7 +47,7 @@ func NewNetPoint(worker types.NetWorker, hostPort int, asyncMode bool) *NetPoint
 		rxBuf:      make(map[int][]byte),
 		rxSeqFront: 0,
 		rxSeqEnd:   0,
-		rxCh:       make(chan int, 4084),
+		//rxCh:       make(chan int, 4084),
 		//txBuf: make(map[int][]byte),
 		done:      make(chan interface{}),
 		asyncMode: asyncMode,
@@ -70,23 +69,47 @@ func receiveRoutine(nc *NetPoint) {
 	//log.Printf("the number of receiveRoutine is %d\n", goroutineNum)
 	gMtx.Unlock()
 
+	//Loop:
+	//	for {
+	//		select {
+	//		case <-nc.rxCh:
+	//			nc.AddRxCnt()
+	//
+	//			//fmt.Println("[",nc.LocalAddr().String(),"] receiveRoutine notified:", seq, "front:", nc.rxSeqFront, "end:", nc.rxSeqEnd, "ch length:", len(nc.rxCh))
+	//
+	//			if d := nc.pickRX(); d != nil {
+	//				if err := nc.Worker().OnRecv(nc, d, len(d)); err != nil {
+	//					log.Printf("[receiveRoutine] %v\n", err)
+	//				}
+	//			} else {
+	//				log.Printf("[receiveRoutine] there is no data\n")
+	//			}
+	//		case <-nc.done:
+	//			break Loop
+	//		}
+	//	}
+
+	ticker := time.NewTicker(time.Microsecond * 500)
+
 Loop:
 	for {
 		select {
-		case <-nc.rxCh:
-			nc.AddRxCnt()
+		case <-ticker.C:
 
-			//fmt.Println("[",nc.LocalAddr().String(),"] receiveRoutine notified:", seq, "front:", nc.rxSeqFront, "end:", nc.rxSeqEnd, "ch length:", len(nc.rxCh))
+			cnt := nc.RxBufCnt()
+			//log.Printf("[NetPoint:%s] rx %d\n", nc.LocalIP(), cnt)
 
-			if d := nc.pickRX(); d != nil {
-				if err := nc.Worker().OnRecv(nc, d, len(d)); err != nil {
-					//log.Printf("[receiveRoutine] %v\n", err)
+			for i := 0; i < cnt; i++ {
+				if d := nc.pickRX(); d != nil {
+					if err := nc.Worker().OnRecv(nc, d, len(d)); err != nil {
+						//log.Printf("[NetPoint:%s receiveRoutine] RxCnt=%d, err=%v\n", nc.LocalIP(), nc.RxCnt(), err)
+					}
 				}
-
 			}
 		case <-nc.done:
 			break Loop
 		}
+		time.Sleep(time.Millisecond)
 	}
 
 	gMtx.Lock()
@@ -95,103 +118,109 @@ Loop:
 	gMtx.Unlock()
 }
 
-func (np *NetPoint) AddRxCnt() {
-	np.mtx.Lock()
-	defer np.mtx.Unlock()
+func (nc *NetPoint) AddRxCnt() {
+	nc.mtx.Lock()
+	defer nc.mtx.Unlock()
 
-	np.rxCnt++
+	nc.rxCnt++
 }
 
-func (np *NetPoint) RxCnt() int {
-	np.mtx.RLock()
-	defer np.mtx.RUnlock()
+func (nc *NetPoint) RxCnt() int {
+	nc.mtx.RLock()
+	defer nc.mtx.RUnlock()
 
-	return np.rxCnt
+	return nc.rxCnt
 }
 
-func (np *NetPoint) AddTxCnt() {
-	np.mtx.Lock()
-	defer np.mtx.Unlock()
+func (nc *NetPoint) AddTxCnt() {
+	nc.mtx.Lock()
+	defer nc.mtx.Unlock()
 
-	np.txCnt++
+	nc.txCnt++
 }
 
-func (np *NetPoint) TxCnt() int {
-	np.mtx.RLock()
-	defer np.mtx.RUnlock()
+func (nc *NetPoint) TxCnt() int {
+	nc.mtx.RLock()
+	defer nc.mtx.RUnlock()
 
-	return np.txCnt
+	return nc.txCnt
 }
 
-func (np *NetPoint) Close() {
+func (nc *NetPoint) Close() {
 	go func() {
-		np.close()
-		np.remotePoint.close()
+		nc.close()
+		nc.remotePoint.close()
 
-		np.worker.OnClose(np)
-		np.remotePoint.worker.OnClose(np.remotePoint)
+		nc.worker.OnClose(nc)
+		nc.remotePoint.worker.OnClose(nc.remotePoint)
 	}()
 
-	RemoveSession(np.session)
+	RemoveSession(nc.session)
 }
 
-func (np *NetPoint) close() {
-	np.done <- struct{}{}
+func (nc *NetPoint) close() {
+	close(nc.done)
 }
 
-func (np *NetPoint) Worker() types.NetWorker {
-	np.mtx.RLock()
-	defer np.mtx.RUnlock()
+func (nc *NetPoint) Worker() types.NetWorker {
+	nc.mtx.RLock()
+	defer nc.mtx.RUnlock()
 
-	return np.worker
+	return nc.worker
 }
 
-func (np *NetPoint) SetSession(sess *Session) {
-	np.mtx.Lock()
-	defer np.mtx.Unlock()
+func (nc *NetPoint) SetSession(sess *Session) {
+	nc.mtx.Lock()
+	defer nc.mtx.Unlock()
 
-	np.session = sess
+	nc.session = sess
 }
 
-func (np *NetPoint) GetSession() *Session {
-	np.mtx.RLock()
-	defer np.mtx.RUnlock()
+func (nc *NetPoint) GetSession() *Session {
+	nc.mtx.RLock()
+	defer nc.mtx.RUnlock()
 
-	return np.session
+	return nc.session
 }
 
-func (np *NetPoint) SetRemotePoint(r *NetPoint) {
-	np.mtx.Lock()
-	defer np.mtx.Unlock()
+func (nc *NetPoint) SetRemotePoint(r *NetPoint) {
+	nc.mtx.Lock()
+	defer nc.mtx.Unlock()
 
-	np.remotePoint = r
+	nc.remotePoint = r
 }
 
-func (np *NetPoint) RemotePoint() *NetPoint {
-	np.mtx.RLock()
-	defer np.mtx.RUnlock()
+func (nc *NetPoint) RemotePoint() *NetPoint {
+	nc.mtx.RLock()
+	defer nc.mtx.RUnlock()
 
-	return np.remotePoint
+	return nc.remotePoint
 }
 
-func (np *NetPoint) putRX(d []byte) (int, error) {
-	np.rxMtx.Lock()
+func (nc *NetPoint) putRX(d []byte) (int, error) {
 
 	b := make([]byte, len(d))
 	n := copy(b, d)
 
-	seq := np.rxSeqEnd
-	np.rxBuf[seq] = b
-	np.rxSeqEnd++
+	nc.rxMtx.Lock()
 
-	np.rxMtx.Unlock()
+	seq := nc.rxSeqEnd
+	nc.rxBuf[seq] = b
+	nc.rxSeqEnd++
 
-	np.rxCh <- seq
-	if len(np.rxCh) == cap(np.rxCh) {
-		log.Printf("[NetPoint:%s] rxCh=%d/%d\n", np.LocalIP(), len(np.rxCh), cap(np.rxCh))
-	}
+	nc.rxMtx.Unlock()
+
+	//log.Printf("[NetPoint:%s] writeRX: rxBuf count=%d\n", nc.LocalIP(), nc.RxBufCnt())
+	//nc.rxCh <- seq
 
 	return n, nil
+}
+
+func (nc *NetPoint) RxBufCnt() int {
+	nc.rxMtx.RLock()
+	defer nc.rxMtx.RUnlock()
+
+	return nc.rxSeqEnd - nc.rxSeqFront
 }
 
 //func (np *NetPoint) getRX(d []byte) int {
@@ -219,18 +248,21 @@ func (np *NetPoint) putRX(d []byte) (int, error) {
 //	return copied
 //}
 
-func (np *NetPoint) pickRX() []byte {
-	np.rxMtx.Lock()
-	defer np.rxMtx.Unlock()
+func (nc *NetPoint) pickRX() []byte {
+	nc.rxMtx.Lock()
+	defer nc.rxMtx.Unlock()
 
-	p, ok := np.rxBuf[np.rxSeqFront]
+	p, ok := nc.rxBuf[nc.rxSeqFront]
 	if !ok {
-		fmt.Println(np.localAddr, "end pickRX")
+		//fmt.Println(nc.localAddr, "end pickRX")
 		return nil
 	}
-	np.rxBuf[np.rxSeqFront] = nil
-	np.rxSeqFront++
+	nc.rxBuf[nc.rxSeqFront] = nil
+	nc.rxSeqFront++
 
+	nc.rxCnt++
+
+	//log.Printf("[NetPoint:%s] pickRX: rxBuf count=%d\n", nc.LocalIP(), nc.RxBufCnt())
 	return p
 }
 
@@ -277,27 +309,23 @@ func (np *NetPoint) pickRX() []byte {
 
 var _ types.NetConn = (*NetPoint)(nil)
 
-func (np *NetPoint) Key() string {
-	np.mtx.RLock()
-	defer np.mtx.RUnlock()
-
-	return np.localAddr.String() + "-" + np.RemoteAddr().String()
+func (nc *NetPoint) Key() string {
+	return nc.LocalAddr().String() + "-" + nc.RemoteAddr().String()
 }
 
-func (np *NetPoint) Write(d []byte) (int, error) {
+func (nc *NetPoint) Write(d []byte) (int, error) {
 	if d == nil || len(d) == 0 {
 		return 0, errors.New("invalid buffer")
 	}
 
-	remotePoint := np.RemotePoint()
-	ret, err := remotePoint.putRX(d)
+	ret, err := nc.RemotePoint().putRX(d)
 
-	np.AddTxCnt()
+	nc.AddTxCnt()
 
 	return ret, err
 }
 
-func (np *NetPoint) Read(d []byte) (int, error) {
+func (nc *NetPoint) Read(d []byte) (int, error) {
 	//if d == nil || len(d) == 0 {
 	//	return 0, errors.New("invalid buffer")
 	//}
@@ -306,49 +334,43 @@ func (np *NetPoint) Read(d []byte) (int, error) {
 	return 0, nil
 }
 
-func (np *NetPoint) LocalAddr() *net.TCPAddr {
-	if np == nil {
-		log.Println("break")
-	}
-	np.mtx.RLock()
-	defer np.mtx.RUnlock()
+func (nc *NetPoint) LocalAddr() *net.TCPAddr {
+	nc.mtx.RLock()
+	defer nc.mtx.RUnlock()
 
-	return np.localAddr
+	return nc.localAddr
 }
 
-func (np *NetPoint) RemoteAddr() *net.TCPAddr {
-	np.mtx.RLock()
-	defer np.mtx.RUnlock()
+func (nc *NetPoint) RemoteAddr() *net.TCPAddr {
+	nc.mtx.RLock()
+	defer nc.mtx.RUnlock()
 
-	return np.remotePoint.LocalAddr()
+	return nc.remotePoint.LocalAddr()
 }
 
-func (np *NetPoint) LocalIP() net.IP {
-	np.mtx.RLock()
-	defer np.mtx.RUnlock()
+func (nc *NetPoint) LocalIP() net.IP {
+	nc.mtx.RLock()
+	defer nc.mtx.RUnlock()
 
-	return np.localAddr.IP
+	return nc.localAddr.IP
 }
 
-func (np *NetPoint) LocalPort() int {
-	np.mtx.RLock()
-	defer np.mtx.RUnlock()
+func (nc *NetPoint) LocalPort() int {
+	nc.mtx.RLock()
+	defer nc.mtx.RUnlock()
 
-	return np.localAddr.Port
+	return nc.localAddr.Port
 }
 
-func (np *NetPoint) RemoteIP() net.IP {
-	np.mtx.RLock()
-	defer np.mtx.RUnlock()
+func (nc *NetPoint) RemoteIP() net.IP {
+	//nc.mtx.RLock()
+	//defer nc.mtx.RUnlock()
 
-	return np.remotePoint.LocalIP()
+	return nc.RemotePoint().LocalIP()
 }
 
-func (np *NetPoint) RemotePort() int {
-	np.mtx.RLock()
-	defer np.mtx.RUnlock()
-
-	return np.remotePoint.LocalPort()
+func (nc *NetPoint) RemotePort() int {
+	return nc.RemotePoint().LocalPort()
 }
 
 var addrMtx sync.Mutex
@@ -356,6 +378,9 @@ var ipv4s []net.IP
 var ports map[string]int
 
 func ResetIPPorts() {
+	addrMtx.Lock()
+	defer addrMtx.Unlock()
+
 	ipv4s = nil
 	ports = make(map[string]int)
 }
@@ -412,14 +437,20 @@ func BindPort(hostIp net.IP) *net.TCPAddr {
 	return tcpAddr
 }
 
-func (np *NetPoint) Connect(toAddr string) error {
-	if _, err := BuildSession(np, toAddr); err != nil {
+func (nc *NetPoint) Connect(toAddr string) error {
+	sess, err := BuildSession(nc, toAddr)
+	if err != nil {
+		nc.close()
 		return err
 	}
 
-	if err := np.worker.(types.ClientWorker).OnConnect(np); err != nil {
-		np.Close()
+	err = nc.worker.(types.ClientWorker).OnConnect(nc)
+	if err != nil {
+		sess.AckCh <- nil
+		nc.Close()
 		return err
 	}
+
+	sess.AckCh <- nil
 	return nil
 }

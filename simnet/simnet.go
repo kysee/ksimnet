@@ -17,8 +17,13 @@ func init() {
 }
 
 func Reset() {
+	listenerMtx.Lock()
 	listeners = make(map[string]*Listener)
+	listenerMtx.Unlock()
+
+	sessionMtx.Lock()
 	sessions = make(map[string]*Session)
+	sessionMtx.Unlock()
 
 	ResetIPPorts()
 }
@@ -80,10 +85,9 @@ func BuildSession(client *NetPoint, to string) (*Session, error) {
 	client.SetSession(sess)
 
 	s.listenCh <- sess
-	err := <-sess.RemoteRetCh
+	err := <-sess.ReqCh
 
 	if err != nil {
-		client.close()
 		return nil, err
 	}
 

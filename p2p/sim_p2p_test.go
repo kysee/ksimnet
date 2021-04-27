@@ -12,7 +12,7 @@ import (
 )
 
 var PeerCnt = 10
-var MinPeerCnt = 6
+var MinPeerCnt = 9
 var MaxPeerCnt = 9
 var MsgCnt = 100000
 
@@ -46,7 +46,7 @@ func TestSimP2P(t *testing.T) {
 		}
 
 		log.Printf("Total others number is %d\n", totalOthers)
-		if totalOthers >= PeerCnt*MinPeerCnt {
+		if totalOthers >= PeerCnt*MaxPeerCnt {
 			break
 		}
 	}
@@ -57,9 +57,9 @@ func TestSimP2P(t *testing.T) {
 		j := rand.Intn(PeerCnt)
 		_, err := peers[j].Send(p2p.NewBytesMsg([]byte("Message Number is " + strconv.Itoa(i))))
 		require.NoError(t, err)
-		//if i%1000 == 0 {
-		//	log.Printf("send %dth msg\n", i)
-		//}
+		if i%5000 == 0 {
+			log.Printf("send %dth msg\n", i)
+		}
 	}
 
 	log.Println("Wait...")

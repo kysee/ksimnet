@@ -15,15 +15,17 @@ const (
 type Session struct {
 	mtx sync.RWMutex
 
-	RemoteRetCh chan error
-	conns       []types.NetConn
-	listener    *Listener
+	ReqCh    chan error
+	AckCh    chan error
+	conns    []types.NetConn
+	listener *Listener
 }
 
 func NewSession(c1, c2 types.NetConn) *Session {
 	return &Session{
-		RemoteRetCh: make(chan error),
-		conns:       []types.NetConn{c1, c2},
+		ReqCh: make(chan error),
+		AckCh: make(chan error),
+		conns: []types.NetConn{c1, c2},
 	}
 }
 
